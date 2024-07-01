@@ -39,5 +39,7 @@ features = ["derive"]
 version = "0.9"
 [dependencies.clap]
 version = "4"
+[dependencies.db]
+path = "../db"
 [dependencies.solana-storage-bigtable]
 path = "../storage-bigtable"

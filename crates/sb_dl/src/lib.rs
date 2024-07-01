@@ -1,7 +1,11 @@
 pub mod config;
+pub mod types;
 
 use {
-    anyhow::Context, solana_storage_bigtable::{LedgerStorage, LedgerStorageConfig}, std::collections::HashSet
+    anyhow::Context,
+    solana_storage_bigtable::{LedgerStorage, LedgerStorageConfig},
+    std::collections::HashSet,
+    types::SerializableConfirmedBlock,
 };
 
 #[derive(Clone)]
