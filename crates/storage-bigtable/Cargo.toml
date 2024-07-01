@@ -1,0 +1,58 @@
+[package]
+name = "solana-storage-bigtable"
+description = "Solana Storage BigTable"
+documentation = "https://docs.rs/solana-storage-bigtable"
+edition = "2021"
+
+[dependencies.backoff]
+version = "0.4"
+features = ["tokio"]
+[dependencies.bincode]
+version = "1.3"
+[dependencies.bytes]
+version = "1.5"
+[dependencies.bzip2]
+version = "0.4"
+[dependencies.enum-iterator]
+version = "1.5"
+[dependencies.flate2]
+version = "1"
+[dependencies.futures]
+version = "0.3"
+[dependencies.goauth]
+version = "0.13"
+[dependencies.http]
+version = "0.2"
+[dependencies.hyper]
+version = "0.14"
+[dependencies.hyper-proxy]
+version = "0.9"
+[dependencies.log]
+version = "0.4"
+[dependencies.prost]
+version = "0.11"
+[dependencies.prost-types]
+version = "0.11"
+[dependencies.serde]
+version = "1"
+[dependencies.serde_derive]
+version = "1"
+[dependencies.smpl_jwt]
+version = "0.7"
+[dependencies.solana-metrics]
+version = "1.18"
+[dependencies.solana-sdk]
+version = "1.18"
+[dependencies.solana-storage-proto]
+version = "1.18"
+[dependencies.solana-transaction-status]
+version = "1.18"
+[dependencies.thiserror]
+version = "1"
+[dependencies.tokio]
+version = "1"
+[dependencies.tonic]
+version = "0.9"
+features = ["tls", "transport"]
+[dependencies.zstd]
+version = "0.11"

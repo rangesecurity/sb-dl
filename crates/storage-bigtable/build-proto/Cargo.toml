@@ -1,0 +1,9 @@
+[package]
+description = "Blockchain, Rebuilt for Scale"
+name = "proto"
+edition = "2021"
+
+[dependencies.tonic-build]
+version = "0.11"
+[dependencies.protobuf-src]
+version = "1"

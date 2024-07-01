@@ -1,0 +1,10 @@
+ postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: "sbdl"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "password123"
+      POSTGRES_EXTENSIONS: pg_trgm
+    ports:
+      - "5432:5432"
+

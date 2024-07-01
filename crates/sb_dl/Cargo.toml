@@ -1,0 +1,43 @@
+[package]
+name = "sb-dl"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "sb_dl"
+path = "src/main.rs"
+
+[dependencies.solana-client]
+version = "1.18"
+[dependencies.solana-sdk]
+version = "1.18"
+[dependencies.solana-account-decoder]
+version = "1.18"
+[dependencies.solana-program]
+version = "1.18"
+[dependencies.solana-transaction-status]
+version = "1.18"
+[dependencies.anyhow]
+version = "1"
+[dependencies.log] 
+version = "0.4"
+[dependencies.diesel]
+version = "2"
+default-features = true
+features = ["serde_json", "chrono", "uuid", "postgres", "r2d2"]
+[dependencies.deadpool-diesel]
+version = "0.4.1"
+features = ["postgres", "serde"]
+[dependencies.tokio]
+version = "1"
+features = ["full"]
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+[dependencies.serde_yaml]
+version = "0.9"
+[dependencies.clap]
+version = "4"
+[dependencies.solana-storage-bigtable]
+path = "../storage-bigtable"
