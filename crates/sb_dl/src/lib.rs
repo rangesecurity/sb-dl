@@ -41,7 +41,7 @@ impl Downloader {
             Some(limit) => limit,
             None => u64::MAX - start, // TODO: use latest slot
         };
-        let slots_to_fetch = (start..start+limit)
+        let slots_to_fetch = (start..start + limit)
             .into_iter()
             .filter_map(|slot| {
                 if already_indexed.contains(&slot) {

@@ -11,8 +11,13 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
 
     let mut already_indexed: HashSet<u64> = {
         let mut conn = db::new_connection(&cfg.db_url)?;
-        let client = db::client::Client{};
-        client.indexed_blocks(&mut conn).unwrap_or_default().into_iter().map(|block| block as u64).collect()
+        let client = db::client::Client {};
+        client
+            .indexed_blocks(&mut conn)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|block| block as u64)
+            .collect()
     };
 
     let blocks = downloader.start(&mut already_indexed, start, limit).await?;
@@ -28,7 +33,6 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
                 }
                 SerializableTransactionWithStatusMeta::Complete(tx) => {
                     println!("complete {tx:#?}");
-                    
                 }
             }
         }

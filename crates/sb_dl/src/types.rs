@@ -1,19 +1,24 @@
 //! wrapper types which implement serde::Serialize and serde::Deserialize
 use serde::{Deserialize, Serialize};
-use solana_sdk::{clock::{Slot, UnixTimestamp}, transaction::{Transaction, VersionedTransaction}};
-use solana_transaction_status::{ConfirmedBlock, Rewards, TransactionStatusMeta, TransactionWithStatusMeta, UiTransactionStatusMeta};
-
+use solana_sdk::{
+    clock::{Slot, UnixTimestamp},
+    transaction::{Transaction, VersionedTransaction},
+};
+use solana_transaction_status::{
+    ConfirmedBlock, Rewards, TransactionStatusMeta, TransactionWithStatusMeta,
+    UiTransactionStatusMeta,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SerializableTransactionWithStatusMeta {
     MissingMetadata(Transaction),
-    Complete(SerializableVersionedTransactionWithStatusMeta)
+    Complete(SerializableVersionedTransactionWithStatusMeta),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SerializableVersionedTransactionWithStatusMeta {
     pub transaction: VersionedTransaction,
-    pub meta: UiTransactionStatusMeta
+    pub meta: UiTransactionStatusMeta,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -23,7 +28,7 @@ pub struct SerializableConfirmedBlock {
     pub parent_slot: Slot,
     pub transactions: Vec<SerializableTransactionWithStatusMeta>,
     /// we use an option here to allow ignoring reward data
-    /// 
+    ///
     /// this is useful if you want to minimize storage consumption by
     /// excluded all consensus related data
     pub rewards: Option<Rewards>,
@@ -51,12 +56,10 @@ impl From<TransactionWithStatusMeta> for SerializableTransactionWithStatusMeta {
             TransactionWithStatusMeta::Complete(tx) => {
                 Self::Complete(SerializableVersionedTransactionWithStatusMeta {
                     transaction: tx.transaction,
-                    meta: Into::into(tx.meta)
+                    meta: Into::into(tx.meta),
                 })
             }
-            TransactionWithStatusMeta::MissingMetadata(tx) => {
-                Self::MissingMetadata(tx)
-            }
+            TransactionWithStatusMeta::MissingMetadata(tx) => Self::MissingMetadata(tx),
         }
     }
 }

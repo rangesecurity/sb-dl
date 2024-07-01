@@ -1,7 +1,4 @@
-use {
-    uuid::Uuid,
-    diesel::prelude::*,
-};
+use {diesel::prelude::*, uuid::Uuid};
 
 #[derive(Queryable, AsChangeset, Identifiable, Debug, Clone)]
 #[diesel(table_name = super::schema::blocks)]

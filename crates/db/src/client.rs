@@ -7,12 +7,12 @@ use crate::models::NewBlock;
 pub struct Client {}
 
 impl Client {
-    pub fn indexed_blocks(
-        self,
-        conn: &mut PgConnection,
-    ) -> anyhow::Result<Vec<i64>> {
+    pub fn indexed_blocks(self, conn: &mut PgConnection) -> anyhow::Result<Vec<i64>> {
         use crate::schema::blocks::dsl::*;
-        let numbers: Vec<i64> = blocks.select(number).get_results(conn).with_context(|| "failed to select block numbers")?;
+        let numbers: Vec<i64> = blocks
+            .select(number)
+            .get_results(conn)
+            .with_context(|| "failed to select block numbers")?;
         Ok(numbers)
     }
     pub fn insert_block(
