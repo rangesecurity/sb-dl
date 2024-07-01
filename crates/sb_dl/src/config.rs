@@ -3,10 +3,19 @@ use {
     solana_storage_bigtable::{CredentialType, LedgerStorageConfig},
 };
 
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Config {
     pub bigtable: LedgerStorageConfig,
     pub db_url: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bigtable: Default::default(),
+            db_url: "postgres://postgres:password123@localhost/sbdl".to_string()
+        }
+    }
 }
 
 impl Config {
