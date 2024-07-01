@@ -2,5 +2,25 @@
 name = "db"
 version = "0.1.0"
 edition = "2021"
-
-[dependencies]
+[features]
+default = []
+testing = []
+[dependencies.diesel]
+version = "2"
+default-features = true
+features = ["serde_json", "chrono", "uuid", "postgres", "r2d2"]
+[dependencies.diesel_migrations]
+version = "2"
+features = ["postgres"]
+[dependencies.uuid]
+version = "1"
+features = ["serde", "v4"]
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+[dependencies.serde_json]
+version = "1"
+[dependencies.anyhow]
+version = "1"
+[dev-dependencies.rand]
+version = "0.8"
