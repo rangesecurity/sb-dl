@@ -51,17 +51,22 @@ impl Downloader {
                 }
             })
             .collect::<Vec<solana_program::clock::Slot>>();
-        let slots = self
+        let mut slots: Vec<(solana_program::clock::Slot, SerializableConfirmedBlock)> = vec![];
+        for slot in slots_to_fetch {
+            let block = self.ls.get_confirmed_block(slot).await.with_context(|| "failed to get slots")?;
+            slots.push((slot, From::from(block)))
+        }
+        /*let slots = self
             .ls
             .get_confirmed_blocks_with_data(&slots_to_fetch)
             .await
             .with_context(|| "failed to get slots")?
             .map(|(slot, block)| (slot, From::from(block)))
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>();*.
 
         slots.iter().for_each(|(slot, _)| {
             already_indexed.insert(*slot);
-        });
+        });*/
         Ok(slots)
     }
 }

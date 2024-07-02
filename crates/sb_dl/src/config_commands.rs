@@ -10,7 +10,7 @@ pub async fn set_credentials_path(matches: &ArgMatches, config_path: &str) -> an
     let mut cfg = Config::load(config_path).await?;
     let cred_path = matches.get_one::<String>("path").unwrap();
 
-    cfg.bigtable_credentials_path(cred_path);
+    cfg.bigtable_credentials_path(cred_path).await?;
 
     cfg.save(config_path).await
 }

@@ -26,8 +26,11 @@ impl Config {
         serde_yaml::from_str(&tokio::fs::read_to_string(path).await?)
             .with_context(|| "failed to deserialize config")
     }
-    pub fn bigtable_credentials_path(&mut self, path: &str) {
-        self.bigtable.credential_type = CredentialType::Filepath(Some(path.to_string()))
+    pub async fn bigtable_credentials_path(&mut self, path: &str) -> anyhow::Result<()> {
+        let credential_info = tokio::fs::read_to_string(path).await?;
+        self.bigtable.credential_type = CredentialType::Stringified(credential_info);
+        //self.bigtable.credential_type = CredentialType::Filepath(Some(path.to_string()))
+        Ok(())
     }
     pub async fn save(&self, path: &str) -> Result<()> {
         tokio::fs::write(
