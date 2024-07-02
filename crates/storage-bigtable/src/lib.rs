@@ -43,7 +43,7 @@ extern crate solana_metrics;
 extern crate serde_derive;
 
 mod access_token;
-mod bigtable;
+pub mod bigtable;
 mod compression;
 mod root_ca_certificate;
 
@@ -121,7 +121,7 @@ fn key_to_slot(key: &str) -> Option<Slot> {
 // added to ConfirmedBlock, they must either be excluded or set to `default_on_eof` here
 //
 #[derive(Serialize, Deserialize)]
-struct StoredConfirmedBlock {
+pub struct StoredConfirmedBlock {
     previous_blockhash: String,
     blockhash: String,
     parent_slot: Slot,

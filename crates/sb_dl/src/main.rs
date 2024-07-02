@@ -2,11 +2,16 @@ pub mod config_commands;
 pub mod download_command;
 
 use {
-    anyhow::{anyhow, Context, Result}, clap::{value_parser, Arg, ArgMatches, Command},
+    anyhow::{anyhow, Context, Result}, clap::{value_parser, Arg, ArgMatches, Command}, sb_dl::logger::{init_log, LogOpts},
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    init_log(LogOpts {
+        level: "info".to_string(),
+        file: "".to_string(),
+        console: false
+    });
     let matches = Command::new("sb_dl")
     .about("solana bigtable downloader")
     .arg(
@@ -30,12 +35,6 @@ async fn main() -> Result<()> {
             .required(false)
         ),
         Command::new("new-config"),
-        Command::new("set-credentials-path")
-        .arg(
-            Arg::new("path")
-            .long("path")
-            .help("path to credentials file")
-        )
     ]).get_matches();
     let config_path = matches.get_one::<String>("config").unwrap();
     process_matches(&matches, config_path).await
@@ -51,9 +50,6 @@ async fn process_matches(
         }
         Some(("new-config", _)) => {
             config_commands::new_config(config_path).await
-        }
-        Some(("set-credentials-path", scp)) => {
-            config_commands::set_credentials_path(scp, config_path).await
         }
         _ => Err(anyhow!("invalid subcommand"))
     }

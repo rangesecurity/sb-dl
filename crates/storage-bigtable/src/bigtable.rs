@@ -249,6 +249,7 @@ impl BigTableConnection {
     /// creating new clients is cheap and thus can be used as a work around for ease of use.
     pub fn client(&self) -> BigTable<impl FnMut(Request<()>) -> InterceptedRequestResult> {
         let access_token = self.access_token.clone();
+        println!("access token {access_token:#?}");
         let client = bigtable_client::BigtableClient::with_interceptor(
             self.channel.clone(),
             move |mut req: Request<()>| {
@@ -858,7 +859,7 @@ impl<F: FnMut(Request<()>) -> InterceptedRequestResult> BigTable<F> {
     }
 }
 
-pub(crate) fn deserialize_protobuf_or_bincode_cell_data<B, P>(
+pub fn deserialize_protobuf_or_bincode_cell_data<B, P>(
     row_data: RowDataSlice,
     table: &str,
     key: RowKey,
@@ -877,7 +878,7 @@ where
     deserialize_bincode_cell_data(row_data, table, key).map(CellData::Bincode)
 }
 
-pub(crate) fn deserialize_protobuf_cell_data<T>(
+pub fn deserialize_protobuf_cell_data<T>(
     row_data: RowDataSlice,
     table: &str,
     key: RowKey,
@@ -898,7 +899,7 @@ where
     })
 }
 
-pub(crate) fn deserialize_bincode_cell_data<T>(
+pub fn deserialize_bincode_cell_data<T>(
     row_data: RowDataSlice,
     table: &str,
     key: RowKey,

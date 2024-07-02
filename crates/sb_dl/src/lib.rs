@@ -1,24 +1,32 @@
 pub mod config;
 pub mod types;
+pub mod logger;
+pub mod solana_bigtable;
 
 use {
-    anyhow::Context,
-    solana_storage_bigtable::{LedgerStorage, LedgerStorageConfig},
-    std::collections::HashSet,
-    types::SerializableConfirmedBlock,
+    anyhow::{anyhow, Context}, bigtable_rs::{bigtable::{BigTableConnection, RowCell}, google::bigtable::v2::{row_filter::Filter, ReadRowsRequest, RowFilter, RowSet}}, config::BigTableConfig, solana_bigtable::{key_to_slot, slot_to_blocks_key, slot_to_key}, solana_sdk::clock::Slot, solana_storage_bigtable::{bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData}, StoredConfirmedBlock}, solana_storage_proto::convert::generated, solana_transaction_status::ConfirmedBlock, std::collections::HashSet, types::SerializableConfirmedBlock
 };
 
 #[derive(Clone)]
 pub struct Downloader {
-    ls: LedgerStorage,
+    conn: BigTableConnection,
 }
 
 impl Downloader {
-    pub async fn new(ledger_config: LedgerStorageConfig) -> anyhow::Result<Self> {
-        let ls = LedgerStorage::new_with_config(ledger_config)
-            .await
-            .with_context(|| "failed to initialize LedgerStorage")?;
-        Ok(Self { ls })
+    pub async fn new(
+        cfg: BigTableConfig,
+    ) -> anyhow::Result<Self> {
+        std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", cfg.credentials_file);
+        let bigtable_conn = BigTableConnection::new(
+            &cfg.project_id,
+            &cfg.instance_name,
+            true,
+            cfg.channel_size,
+            Some(cfg.timeout)
+        ).await.with_context(|| "failed to initialize bigtable connection")?;
+        Ok(Self {
+            conn: bigtable_conn,
+        })
     }
     /// Starts the bigtable downloader
     ///
@@ -53,8 +61,8 @@ impl Downloader {
             .collect::<Vec<solana_program::clock::Slot>>();
         let mut slots: Vec<(solana_program::clock::Slot, SerializableConfirmedBlock)> = vec![];
         for slot in slots_to_fetch {
-            let block = self.ls.get_confirmed_block(slot).await.with_context(|| "failed to get slots")?;
-            slots.push((slot, From::from(block)))
+            self.get_confirmed_block(slot).await?;
+            //slots.push((slot, From::from(block)))
         }
         /*let slots = self
             .ls
@@ -68,5 +76,98 @@ impl Downloader {
             already_indexed.insert(*slot);
         });*/
         Ok(slots)
+    }
+    async fn get_confirmed_block(
+        &self,
+        slot: Slot,
+    ) -> anyhow::Result<ConfirmedBlock> {
+        let mut client = self.conn.client();
+        let data = tokio::fs::read_to_string("data.json").await?;
+        let block: SerializedBlock = serde_json::from_str(&data).unwrap();
+        let key = slot_to_key(block.slot);
+        let cell_name = String::from_utf8(block.cells[0].qualifier.clone()).unwrap();
+        let cell_data = deserialize_protobuf_or_bincode_cell_data::<StoredConfirmedBlock, generated::ConfirmedBlock>(
+            &[(cell_name, block.cells[0].value.clone())],
+            "blocks",
+            key,
+        ).unwrap();
+        println!("decoded cell data");
+        let c_block: ConfirmedBlock = match cell_data {
+            CellData::Bincode(block) => {
+                block.into()
+            }
+            CellData::Protobuf(block) => {
+                block.try_into().unwrap()
+            }
+        };
+        println!("txns {}", c_block.transactions.len());
+        println!("decoded block");
+        /*let response = client.read_rows(ReadRowsRequest {
+            table_name: client.get_full_table_name("blocks"),
+            app_profile_id: "default".to_string(),
+            rows_limit: 1,
+            rows: Some(RowSet {
+                row_keys: vec![slot_to_blocks_key(slot).into()],
+                row_ranges: vec![]
+            }),
+            filter: Some(RowFilter {
+                    // Only return the latest version of each cell
+                    filter: Some(Filter::CellsPerColumnLimitFilter(1)),
+            }),
+            request_stats_view: 0,
+            reversed: false,
+        }).await.with_context(|| "Failed to get confirmed block")?;
+        println!("response_count {}", response.len());
+        for res in response {
+            let slot = match String::from_utf8(res.0) {
+                Ok(name) => {
+                    if let Some(slot) = key_to_slot(&name) {
+                        println!("slot {slot}");
+                        slot
+                    } else {
+                        println!("failed to convert key to slot");
+                        continue;
+                    }
+                },
+                Err(err) => {
+                    println!("failed to decode {err:#?}");
+                    continue;
+                }
+            };
+            let to_save = SerializedBlock {
+                slot,
+                cells: res.1.into_iter().map(|r| From::from(r)).collect(),
+            };
+            tokio::fs::write("data.json", serde_json::to_string(&to_save).unwrap()).await.unwrap();
+        }
+        */Err(anyhow!("TODO"))
+    }
+}
+
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SerializedBlock {
+    pub slot: u64,
+    pub cells: Vec<RowCellSerializable>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct RowCellSerializable {
+    pub family_name: String,
+    pub qualifier: Vec<u8>,
+    pub value: Vec<u8>,
+    pub timestamp_micros: i64,
+    pub labels: Vec<String>,
+}
+
+impl From<RowCell> for RowCellSerializable {
+    fn from(value: RowCell) -> Self {
+        Self {
+            family_name: value.family_name,
+            qualifier: value.qualifier,
+            value: value.value,
+            timestamp_micros: value.timestamp_micros,
+            labels: value.labels
+        }
     }
 }
