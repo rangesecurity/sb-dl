@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use clap::ArgMatches;
 use db::migrations::run_migrations;
-use sb_dl::{config::Config, Downloader};
+use sb_dl::{
+    config::{self, Config},
+    Downloader,
+};
 use serde_json::Value;
 use solana_transaction_status::UiConfirmedBlock;
 use tokio::signal::unix::{signal, SignalKind};
@@ -20,7 +23,7 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
     // read all failed blocks to append to the already_indexed hash set
     //
     // we do this so we can avoid re-downloading the blocks which are stored locally
-    let failed_blocks = read_failed_blocks(&failed_blocks_dir).await.unwrap();
+    let failed_blocks = get_failed_blocks(&failed_blocks_dir).await.unwrap();
 
     // load all currently indexed block number to avoid re-downloading already indexed block data
     let mut already_indexed: HashSet<u64> = {
@@ -132,6 +135,25 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
     }
 }
 
+pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+    let cfg = Config::load(config_path).await?;
+    let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
+    let failed_blocks = load_failed_blocks(&failed_blocks_dir).await?;
+
+    // if we fail to connect to postgres, we should terminate the thread
+    let mut conn = db::new_connection(&cfg.db_url)?;
+
+    let client = db::client::Client {};
+
+    for (slot, block) in failed_blocks {
+        if let Err(err) = client.insert_block(&mut conn, slot as i64, block) {
+            log::error!("failed to insert block({slot}) {err:#?}");
+        }
+    }
+
+    Ok(())
+}
+
 // sanitizes utf8 encoding issues which prevent converting serde_json::Value to a string
 fn sanitize_value(value: &mut Value) {
     match value {
@@ -157,13 +179,13 @@ fn sanitize_value(value: &mut Value) {
 }
 
 // reads all files from the failed_blocks directory, and retrieves the block numbers
-async fn read_failed_blocks(dir: &str) -> anyhow::Result<HashSet<u64>> {
+async fn get_failed_blocks(dir: &str) -> anyhow::Result<HashSet<u64>> {
     use regex::Regex;
     use std::collections::HashSet;
     use std::path::Path;
     let dir_path = Path::new(dir);
-    let mut hash_set = HashSet::new();
     let re = Regex::new(r"block_(\d+)\.json").unwrap();
+    let mut hash_set = HashSet::new();
 
     let entries = tokio::fs::read_dir(dir_path).await?;
     tokio::pin!(entries);
@@ -180,4 +202,29 @@ async fn read_failed_blocks(dir: &str) -> anyhow::Result<HashSet<u64>> {
         }
     }
     Ok(hash_set)
+}
+
+async fn load_failed_blocks(dir: &str) -> anyhow::Result<Vec<(u64, serde_json::Value)>> {
+    use regex::Regex;
+
+    let mut blocks = vec![];
+
+    let re = Regex::new(r"block_(\d+)\.json").unwrap();
+    let entries = tokio::fs::read_dir(dir).await?;
+    tokio::pin!(entries);
+
+    while let Some(entry) = entries.next_entry().await? {
+        if let Some(file_name) = entry.file_name().to_str() {
+            if let Some(captures) = re.captures(file_name) {
+                if let Some(matched) = captures.get(1) {
+                    if let Ok(slot) = matched.as_str().parse::<u64>() {
+                        let block = tokio::fs::read_to_string(entry.path()).await?;
+                        let block: serde_json::Value = serde_json::from_str(&block)?;
+                        blocks.push((slot, block));
+                    }
+                }
+            }
+        }
+    }
+    Ok(blocks)
 }

@@ -57,6 +57,14 @@ async fn main() -> Result<()> {
                     .default_value("failed_blocks")
                     .required(false)
                 ),
+                Command::new("import-failed-blocks")
+                .arg(
+                    Arg::new("failed-blocks")
+                    .long("failed-blocks")
+                    .help("directory to store failed blocks in")
+                    .default_value("failed_blocks")
+                    .required(false)
+                ),
             Command::new("new-config"),
         ])
         .get_matches();
@@ -73,6 +81,7 @@ async fn main() -> Result<()> {
 async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     match matches.subcommand() {
         Some(("download", dl)) => commands::download::start(dl, config_path).await,
+        Some(("import-failed-blocks", ifb)) => commands::download::import_failed_blocks(ifb, config_path).await,
         Some(("new-config", _)) => commands::config::new_config(config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
