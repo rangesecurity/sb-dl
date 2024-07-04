@@ -51,6 +51,8 @@ features = ["log", "attributes"]
 version = "1"
 [dependencies.solana-storage-proto]
 version = "1.18"
+[dependencies.regex]
+version = "1"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]

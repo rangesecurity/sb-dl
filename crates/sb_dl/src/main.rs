@@ -49,6 +49,13 @@ async fn main() -> Result<()> {
                         .action(clap::ArgAction::SetTrue)
                         .default_value("false")
                         .required(false),
+                )
+                .arg(
+                    Arg::new("failed-blocks")
+                    .long("failed-blocks")
+                    .help("directory to store failed blocks in")
+                    .default_value("failed_blocks")
+                    .required(false)
                 ),
             Command::new("new-config"),
         ])
