@@ -9,6 +9,7 @@
 
 * Rust
 * Postgresql
+* Dependencies: `make, build-essential, libpq-dev, pkg-config, protobuf-compiler`
 
 ## Running
 

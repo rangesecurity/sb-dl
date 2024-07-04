@@ -16,6 +16,8 @@ pub struct BigTableConfig {
     pub instance_name: String,
     pub channel_size: usize,
     pub timeout: Duration,
+    // max decoding size in mb
+    pub max_decoding_size: usize,
 }
 
 impl Default for Config {
@@ -35,6 +37,7 @@ impl Default for BigTableConfig {
             instance_name: "solana-ledger".to_string(),
             channel_size: 10,
             timeout: Duration::from_secs(10),
+            max_decoding_size: 100*1024*1024
         }
     }
 }

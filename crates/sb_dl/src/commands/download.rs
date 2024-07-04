@@ -3,13 +3,24 @@ use std::collections::HashSet;
 use clap::ArgMatches;
 use db::migrations::run_migrations;
 use sb_dl::{config::Config, Downloader};
+use serde_json::Value;
+use solana_transaction_status::UiConfirmedBlock;
+use tokio::signal::unix::{signal, SignalKind};
 
 pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;
     let start = matches.get_one::<u64>("start").cloned();
     let limit = matches.get_one::<u64>("limit").cloned();
     let no_minimization = matches.get_flag("no-minimization");
-    let downloader = Downloader::new(cfg.bigtable).await?;
+    let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
+
+    // create failed blocks directory, ignoring error (its already created)
+    let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
+
+    // read all failed blocks to append to the already_indexed hash set
+    //
+    // we do this so we can avoid re-downloading the blocks which are stored locally
+    let failed_blocks = read_failed_blocks(&failed_blocks_dir).await.unwrap();
 
     // load all currently indexed block number to avoid re-downloading already indexed block data
     let mut already_indexed: HashSet<u64> = {
@@ -26,24 +37,147 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
             .map(|block| block as u64)
             .collect()
     };
-    log::info!("starting block_indexing. disable_minimization={no_minimization}");
-    let blocks = downloader
-        .start(&mut already_indexed, start, limit, no_minimization)
-        .await?;
 
+    // mark failed blocks as already indexed to avoid redownloading
+    already_indexed.extend(failed_blocks.iter());
+
+    let downloader = Downloader::new(cfg.bigtable).await?;
+
+    // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
+    let (blocks_tx, mut blocks_rx) =
+        tokio::sync::mpsc::channel::<(u64, UiConfirmedBlock)>(limit.unwrap_or(1_000) as usize);
+
+    let mut sig_quit = signal(SignalKind::quit())?;
+    let mut sig_int = signal(SignalKind::interrupt())?;
+    let mut sig_term = signal(SignalKind::terminate())?;
+
+    // if we fail to connect to postgres, we should terminate the thread
     let mut conn = db::new_connection(&cfg.db_url)?;
-    let client = db::client::Client {};
-    for (slot, block) in blocks {
-        match serde_json::to_value(block) {
-            Ok(block) => {
-                if let Err(err) = client.insert_block(&mut conn, slot as i64, block) {
-                    log::error!("failed to persist block({slot}) {err:#?}");
+
+    // start the background persistence task
+    tokio::task::spawn(async move {
+        let client = db::client::Client {};
+
+        while let Some((slot, block)) = blocks_rx.recv().await {
+            match serde_json::to_value(block) {
+                Ok(mut block) => {
+                    if client
+                        .insert_block(&mut conn, slot as i64, block.clone())
+                        .is_err()
+                    {
+                        // block failed to be inserted into postgres
+                        // so sanitize json and persist the block on disk
+                        sanitize_value(&mut block);
+                        match serde_json::to_string(&block) {
+                            Ok(block_str) => {
+                                if let Err(err) = tokio::fs::write(
+                                    format!("{failed_blocks_dir}/block_{slot}.json"),
+                                    block_str,
+                                )
+                                .await
+                                {
+                                    log::error!("failed to store failed block({slot}) {err:#?}");
+                                } else {
+                                    log::warn!("block({slot}) failed to persist, saved to {failed_blocks_dir}/block_{slot}.json");
+                                }
+                            }
+                            Err(err) => {
+                                log::error!("failed to json serialize block({slot}) {err:#?}");
+                            }
+                        }
+                    } else {
+                        log::info!("persisted block({slot})");
+                    }
+                }
+                Err(err) => {
+                    log::error!("failed to serialize block({slot}) {err:#?}");
                 }
             }
-            Err(err) => {
-                log::error!("failed to serialize block({slot}) {err:#?}");
+        }
+    });
+
+    let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+
+    tokio::task::spawn(async move {
+        log::info!("starting block_indexing. disable_minimization={no_minimization}");
+
+        if let Err(err) = downloader
+            .start(blocks_tx, already_indexed, start, limit, no_minimization)
+            .await
+        {
+            log::error!("downloader failed {err:#?}");
+        }
+
+        log::info!("finished downloading blocks");
+        let _ = finished_tx.send(());
+    });
+
+    // handle exit routines
+    tokio::select! {
+        _ = sig_quit.recv() => {
+            log::warn!("goodbye..");
+            return Ok(());
+        }
+        _ = sig_int.recv() => {
+            log::warn!("goodbye..");
+            return Ok(());
+        }
+        _ = sig_term.recv() => {
+            log::warn!("goodbye..");
+            return Ok(());
+        }
+        _ = finished_rx => {
+            return Ok(());
+        }
+    }
+}
+
+// sanitizes utf8 encoding issues which prevent converting serde_json::Value to a string
+fn sanitize_value(value: &mut Value) {
+    match value {
+        Value::String(s) => {
+            // Check if the string contains valid UTF-8
+            if let Err(_) = std::str::from_utf8(s.as_bytes()) {
+                // Replace invalid UTF-8 with a placeholder
+                *s = String::from_utf8_lossy(s.as_bytes()).into_owned();
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr {
+                sanitize_value(v);
+            }
+        }
+        Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                sanitize_value(v);
+            }
+        }
+        _ => {}
+    }
+}
+
+// reads all files from the failed_blocks directory, and retrieves the block numbers
+async fn read_failed_blocks(dir: &str) -> anyhow::Result<HashSet<u64>> {
+    use regex::Regex;
+    use std::collections::HashSet;
+    use std::path::Path;
+    let dir_path = Path::new(dir);
+    let mut hash_set = HashSet::new();
+    let re = Regex::new(r"block_(\d+)\.json").unwrap();
+
+    let entries = tokio::fs::read_dir(dir_path).await?;
+    tokio::pin!(entries);
+
+    while let Some(entry) = entries.next_entry().await? {
+        if let Some(file_name) = entry.file_name().to_str() {
+            if let Some(captures) = re.captures(file_name) {
+                if let Some(matched) = captures.get(1) {
+                    if let Ok(number) = matched.as_str().parse::<u64>() {
+                        hash_set.insert(number);
+                    }
+                }
             }
         }
     }
-    Ok(())
+    Ok(hash_set)
 }

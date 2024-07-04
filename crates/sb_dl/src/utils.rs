@@ -1,9 +1,8 @@
 use {
     anyhow::Context,
-    solana_sdk::message::VersionedMessage,
+    solana_sdk::{message::VersionedMessage, pubkey::Pubkey},
     solana_transaction_status::{
-        BlockEncodingOptions, ConfirmedBlock, TransactionDetails, TransactionWithStatusMeta,
-        UiConfirmedBlock, UiTransactionEncoding,
+        BlockEncodingOptions, ConfirmedBlock, EncodedTransaction, TransactionDetails, TransactionWithStatusMeta, UiConfirmedBlock, UiInstruction, UiMessage, UiParsedInstruction, UiTransactionEncoding
     },
     std::str::FromStr,
     tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter, Layer},
@@ -17,13 +16,10 @@ use {
 ///
 /// > Encodeds with UiTransactionEncoding for easier parsing
 pub fn process_block(
-    mut block: ConfirmedBlock,
+    block: ConfirmedBlock,
     no_minimization: bool,
 ) -> anyhow::Result<UiConfirmedBlock> {
-    if no_minimization == false {
-        block = filter_vote_transactions(block);
-    }
-    block
+    let mut block = block
         .encode_with_options(
             UiTransactionEncoding::JsonParsed,
             BlockEncodingOptions {
@@ -34,80 +30,73 @@ pub fn process_block(
                 max_supported_transaction_version: Some(1),
             },
         )
-        .with_context(|| "failed to encode block")
+        .with_context(|| "failed to encode block")?;
+    if no_minimization == false {
+        block = filter_vote_transactions(block);
+    }
+    Ok(block)
 }
 
 /// To save space on indexing, exclude all vote/consensus related transactions
-pub fn filter_vote_transactions(mut block: ConfirmedBlock) -> ConfirmedBlock {
-    block.transactions = block
-        .transactions
-        .into_iter()
-        .filter(|tx| {
-            match tx {
-                TransactionWithStatusMeta::MissingMetadata(tx) => {
-                    let msg = tx.message();
-                    if msg.instructions.len() == 1 && msg.account_keys.len() > 0 {
-                        let pid_index = msg.instructions[0].program_id_index;
-                        if msg.account_keys.len() - 1 > pid_index as usize {
-                            log::warn!("found unparsable instruction");
-                            return false;
+pub fn filter_vote_transactions(mut block: UiConfirmedBlock) -> UiConfirmedBlock {
+    if let Some(txs) = block.transactions {
+        block.transactions = Some(txs.into_iter().filter(|tx| {
+            match &tx.transaction {
+                EncodedTransaction::Json(tx) => {
+                    match &tx.message {
+                        UiMessage::Parsed(msg) => {
+                            if msg.instructions.len() == 1 && msg.account_keys.len() > 0 {
+                                match &msg.instructions[0] {
+                                    UiInstruction::Compiled(ix) => {
+                                        let pid_index = ix.program_id_index;
+                                        if let Ok(pid) = Pubkey::from_str(&msg.account_keys[pid_index as usize].pubkey) {
+                                        
+                                            if pid == solana_sdk::vote::program::id() {
+                                                return false;
+                                            }
+                                        }
+                                    }
+                                    UiInstruction::Parsed(ix) => {
+                                        match ix {
+                                            UiParsedInstruction::PartiallyDecoded(ix) => {
+                                                if let Ok(pid) = Pubkey::from_str(&ix.program_id) {
+                                                    if pid == solana_sdk::vote::program::id() {
+                                                        return false;
+                                                    }
+                                                }
+                                            }
+                                            UiParsedInstruction::Parsed(ix) => {
+                                                if let Ok(pid) = Pubkey::from_str(&ix.program_id) {
+                                                    if pid == solana_sdk::vote::program::id() {
+                                                        return false;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        if msg.account_keys[pid_index as usize] == solana_sdk::vote::program::id() {
-                            false
-                        } else {
-                            true
+                        UiMessage::Raw(msg) => {
+                            if msg.instructions.len() == 1 && msg.account_keys.len() > 0 {
+                                let pid_index = msg.instructions[0].program_id_index;
+                                if let Ok(pid) = Pubkey::from_str(&msg.account_keys[pid_index as usize]) {
+                                    if pid == solana_sdk::vote::program::id() {
+                                        return false;
+                                    }
+                                }
+                            }
                         }
-                    } else {
-                        // not a vote transaction
-                        true
                     }
+                    true
                 }
-                TransactionWithStatusMeta::Complete(tx) => {
-                    let msg = &tx.transaction.message;
-                    match msg {
-                        VersionedMessage::Legacy(legacy_msg) => {
-                            if legacy_msg.instructions.len() == 1
-                                && legacy_msg.account_keys.len() > 0
-                            {
-                                let pid_index = legacy_msg.instructions[0].program_id_index;
-                                if legacy_msg.account_keys.len() - 1 > pid_index as usize {
-                                    log::warn!("found unparsable instruction");
-                                    return false;
-                                }
-                                if legacy_msg.account_keys[pid_index as usize]
-                                    == solana_sdk::vote::program::id()
-                                {
-                                    false
-                                } else {
-                                    true
-                                }
-                            } else {
-                                true
-                            }
-                        }
-                        VersionedMessage::V0(v0_msg) => {
-                            if v0_msg.instructions.len() == 1 && v0_msg.account_keys.len() > 0 {
-                                let pid_index = v0_msg.instructions[0].program_id_index;
-                                if v0_msg.account_keys.len() - 1 > pid_index as usize {
-                                    log::warn!("found unparsable instruction");
-                                    return false;
-                                }
-                                if v0_msg.account_keys[pid_index as usize]
-                                    == solana_sdk::vote::program::id()
-                                {
-                                    false
-                                } else {
-                                    true
-                                }
-                            } else {
-                                true
-                            }
-                        }
-                    }
+                _ => {
+                    log::error!("found incorrectly encoded tx");
+                    false
                 }
             }
-        })
-        .collect();
+        }).collect());
+    }
     block
 }
 

@@ -4,13 +4,14 @@ pub mod utils;
 use {
     anyhow::{anyhow, Context},
     bigtable_rs::{
-        bigtable::BigTableConnection,
+        bigtable::{read_rows::decode_read_rows_response, BigTableConnection},
         google::bigtable::v2::{row_filter::Filter, ReadRowsRequest, RowFilter, RowSet},
     },
     config::BigTableConfig,
     solana_sdk::clock::Slot,
     solana_storage_bigtable::{
-        bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData}, key_to_slot, slot_to_blocks_key, StoredConfirmedBlock
+        bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
+        key_to_slot, slot_to_blocks_key, StoredConfirmedBlock,
     },
     solana_storage_proto::convert::generated,
     solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock},
@@ -21,6 +22,7 @@ use {
 #[derive(Clone)]
 pub struct Downloader {
     conn: BigTableConnection,
+    max_decoding_size: usize,
 }
 
 impl Downloader {
@@ -37,22 +39,25 @@ impl Downloader {
         .with_context(|| "failed to initialize bigtable connection")?;
         Ok(Self {
             conn: bigtable_conn,
+            max_decoding_size: cfg.max_decoding_size,
         })
     }
     /// Starts the bigtable downloader
     ///
     /// # Parameters
     ///
+    /// `blocks_tx`: channel which downloaded blocks are sent too
     /// `already_indexed`: the slots for which we have already downloaded blocks
     /// `start`: optional slot to start downloading from, if None starts at slot 0
     /// `limit`: max number of slots to index, if None use latest slot as bound
     pub async fn start(
         &self,
-        already_indexed: &mut HashSet<u64>,
+        blocks_tx: tokio::sync::mpsc::Sender<(u64, UiConfirmedBlock)>,
+        already_indexed: HashSet<u64>,
         start: Option<u64>,
         limit: Option<u64>,
         no_minimization: bool,
-    ) -> anyhow::Result<Vec<(solana_program::clock::Slot, UiConfirmedBlock)>> {
+    ) -> anyhow::Result<()> {
         let start = match start {
             Some(start) => start,
             None => 0,
@@ -77,22 +82,21 @@ impl Downloader {
             })
             .collect::<Vec<solana_program::clock::Slot>>();
 
-        let mut slots: Vec<(solana_program::clock::Slot, UiConfirmedBlock)> = Vec::with_capacity(slots_to_fetch.len());
-
         for slot in slots_to_fetch {
-
             // retrieve confirmed block from bigtable
             match self.get_confirmed_block(slot).await {
                 Ok(block) => {
-
-                    // post process the block to handle encoding and space minimization
-                    match process_block(block, no_minimization) {
-                        Ok(block) => {
-                            already_indexed.insert(slot);
-                            slots.push((slot, block))
-                        }
-                        Err(err) => {
-                            log::error!("failed to minimize and encode block({slot}) {err:#?}");
+                    if let Some(block) = block {
+                        // post process the block to handle encoding and space minimization
+                        match process_block(block, no_minimization) {
+                            Ok(block) => {
+                                if let Err(err) = blocks_tx.send((slot, block)).await {
+                                    log::error!("failed to send block({slot}) {err:#?}");
+                                }
+                            }
+                            Err(err) => {
+                                log::error!("failed to minimize and encode block({slot}) {err:#?}");
+                            }
                         }
                     }
                 }
@@ -102,38 +106,46 @@ impl Downloader {
             }
         }
 
-        Ok(slots)
+        Ok(())
     }
 
-    pub async fn get_confirmed_block(&self, slot: Slot) -> anyhow::Result<ConfirmedBlock> {
+    pub async fn get_confirmed_block(&self, slot: Slot) -> anyhow::Result<Option<ConfirmedBlock>> {
         let mut client = self.conn.client();
 
-        let mut response = client
-            .read_rows(ReadRowsRequest {
-                table_name: client.get_full_table_name("blocks"),
-                app_profile_id: "default".to_string(),
-                rows_limit: 1,
-                rows: Some(RowSet {
-                    row_keys: vec![slot_to_blocks_key(slot).into()],
-                    row_ranges: vec![],
-                }),
-                filter: Some(RowFilter {
-                    // Only return the latest version of each cell
-                    filter: Some(Filter::CellsPerColumnLimitFilter(1)),
-                }),
-                request_stats_view: 0,
-                reversed: false,
-            })
-            .await
-            .with_context(|| format!("failed to get block for slot({slot})"))?;
-        
+        let mut big_client = client
+            .get_client()
+            .clone()
+            .max_decoding_message_size(self.max_decoding_size);
+
+        let mut response = decode_read_rows_response(
+            &None,
+            big_client
+                .read_rows(ReadRowsRequest {
+                    table_name: client.get_full_table_name("blocks"),
+                    app_profile_id: "default".to_string(),
+                    rows_limit: 1,
+                    rows: Some(RowSet {
+                        row_keys: vec![slot_to_blocks_key(slot).into()],
+                        row_ranges: vec![],
+                    }),
+                    filter: Some(RowFilter {
+                        // Only return the latest version of each cell
+                        filter: Some(Filter::CellsPerColumnLimitFilter(1)),
+                    }),
+                    request_stats_view: 0,
+                    reversed: false,
+                })
+                .await
+                .with_context(|| format!("failed to get block for slot({slot})"))?
+                .into_inner(),
+        )
+        .await
+        .with_context(|| "failed to decode response")?;
+    
         // ensure we got a single response, as we requested 1 slot
         if response.len() != 1 {
-            return Err(anyhow!(
-                "mismatched response length. got {}, want {}",
-                response.len(),
-                1
-            ));
+            // block does not exist and cant be found
+            return Ok(None);
         }
 
         // ensure the cell contains some data
@@ -153,10 +165,10 @@ impl Downloader {
         match key_to_slot(&key) {
             Some(keyed_slot) => {
                 if keyed_slot != slot {
-                    return Err(anyhow!("keyed_slot({keyed_slot}) != slot({slot}"))
+                    return Err(anyhow!("keyed_slot({keyed_slot}) != slot({slot}"));
                 }
             }
-            None => return Err(anyhow!("failed to parse key to slot({slot})"))
+            None => return Err(anyhow!("failed to parse key to slot({slot})")),
         }
 
         if response[0].1[0].qualifier.is_empty() {
@@ -191,6 +203,6 @@ impl Downloader {
                 }
             },
         };
-        Ok(confirmed_block)
+        Ok(Some(confirmed_block))
     }
 }
