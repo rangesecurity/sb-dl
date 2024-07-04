@@ -10,8 +10,7 @@ use {
     config::BigTableConfig,
     solana_sdk::clock::Slot,
     solana_storage_bigtable::{
-        bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
-        slot_to_blocks_key, StoredConfirmedBlock,
+        bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData}, key_to_slot, slot_to_blocks_key, StoredConfirmedBlock
     },
     solana_storage_proto::convert::generated,
     solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock},
@@ -58,10 +57,15 @@ impl Downloader {
             Some(start) => start,
             None => 0,
         };
+
         let limit = match limit {
             Some(limit) => limit,
-            None => u64::MAX - start, // TODO: use latest slot
+            // TODO: use latest slot, while not exactly critical is a "nice to have" feature
+            // although this requires using a solana rpc
+            None => u64::MAX - start,
         };
+
+        // get the list of slots to fetch, excluding any previously indexed slots from the specified range
         let slots_to_fetch = (start..start + limit)
             .into_iter()
             .filter_map(|slot| {
@@ -72,10 +76,16 @@ impl Downloader {
                 }
             })
             .collect::<Vec<solana_program::clock::Slot>>();
-        let mut slots: Vec<(solana_program::clock::Slot, UiConfirmedBlock)> = vec![];
+
+        let mut slots: Vec<(solana_program::clock::Slot, UiConfirmedBlock)> = Vec::with_capacity(slots_to_fetch.len());
+
         for slot in slots_to_fetch {
+
+            // retrieve confirmed block from bigtable
             match self.get_confirmed_block(slot).await {
                 Ok(block) => {
+
+                    // post process the block to handle encoding and space minimization
                     match process_block(block, no_minimization) {
                         Ok(block) => {
                             already_indexed.insert(slot);
@@ -85,19 +95,20 @@ impl Downloader {
                             log::error!("failed to minimize and encode block({slot}) {err:#?}");
                         }
                     }
-                    already_indexed.insert(slot);
                 }
                 Err(err) => {
                     log::error!("failed to fetch block({slot}) {err:#?}");
                 }
             }
         }
+
         Ok(slots)
     }
 
     pub async fn get_confirmed_block(&self, slot: Slot) -> anyhow::Result<ConfirmedBlock> {
         let mut client = self.conn.client();
-        let response = client
+
+        let mut response = client
             .read_rows(ReadRowsRequest {
                 table_name: client.get_full_table_name("blocks"),
                 app_profile_id: "default".to_string(),
@@ -115,8 +126,8 @@ impl Downloader {
             })
             .await
             .with_context(|| format!("failed to get block for slot({slot})"))?;
-
-        // todo: is this needed? need more testing to confirm
+        
+        // ensure we got a single response, as we requested 1 slot
         if response.len() != 1 {
             return Err(anyhow!(
                 "mismatched response length. got {}, want {}",
@@ -125,21 +136,7 @@ impl Downloader {
             ));
         }
 
-        // parse the key from the response
-        let key = String::from_utf8(response[0].0.clone())
-            .with_context(|| format!("failed to parse key for slot({slot})"))?;
-
-        // do we need to do this? it seems excessive
-        /*match key_to_slot(&key).with_context(|| format!("failed to parse slot({slot}) response")) {
-            Some(keyed_slot) => {
-                if keyed_slot != slot {
-                    return Err(anyhow!("keyed_slot({keyed_slot}) != slot({slot}"))
-                }
-                keyed_slot
-            }
-            None => return Err(anyhow!("failed to parse key to slot"))
-        }*/
-
+        // ensure the cell contains some data
         if response[0].1.len() != 1 {
             return Err(anyhow!(
                 "mismatched cell count for slot({slot}). got {} want {}",
@@ -148,14 +145,36 @@ impl Downloader {
             ));
         }
 
-        let cell_name = String::from_utf8(response[0].1[0].qualifier.clone())
+        // parse the key from the response
+        let key = String::from_utf8(std::mem::take(&mut response[0].0))
+            .with_context(|| format!("failed to parse key for slot({slot})"))?;
+
+        // verify that the response is for the slot we requested, probably a bit excessive
+        match key_to_slot(&key) {
+            Some(keyed_slot) => {
+                if keyed_slot != slot {
+                    return Err(anyhow!("keyed_slot({keyed_slot}) != slot({slot}"))
+                }
+            }
+            None => return Err(anyhow!("failed to parse key to slot({slot})"))
+        }
+
+        if response[0].1[0].qualifier.is_empty() {
+            return Err(anyhow!("empty qualifier for slot({slot})"));
+        }
+
+        let cell_name = String::from_utf8(std::mem::take(&mut response[0].1[0].qualifier))
             .with_context(|| format!("failed to parse cell_name for slot({slot})"))?;
+
+        if response[0].1[0].value.is_empty() {
+            return Err(anyhow!("empty value for slot({slot})"));
+        }
 
         let cell_data = deserialize_protobuf_or_bincode_cell_data::<
             StoredConfirmedBlock,
             generated::ConfirmedBlock,
         >(
-            &[(cell_name, response[0].1[0].value.clone())],
+            &[(cell_name, std::mem::take(&mut response[0].1[0].value))],
             "blocks",
             key,
         )
