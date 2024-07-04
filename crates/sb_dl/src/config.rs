@@ -1,19 +1,40 @@
 use {
     anyhow::{Context, Result},
-    solana_storage_bigtable::{CredentialType, LedgerStorageConfig},
+    std::time::Duration,
 };
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Config {
-    pub bigtable: LedgerStorageConfig,
+    pub bigtable: BigTableConfig,
     pub db_url: String,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct BigTableConfig {
+    pub credentials_file: String,
+    pub project_id: String,
+    pub instance_name: String,
+    pub channel_size: usize,
+    pub timeout: Duration,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             bigtable: Default::default(),
-            db_url: "postgres://postgres:password123@localhost/sbdl".to_string()
+            db_url: "postgres://postgres:password123@localhost/sbdl".to_string(),
+        }
+    }
+}
+
+impl Default for BigTableConfig {
+    fn default() -> Self {
+        Self {
+            credentials_file: "".to_string(),
+            project_id: "mainnet-beta".to_string(),
+            instance_name: "solana-ledger".to_string(),
+            channel_size: 10,
+            timeout: Duration::from_secs(10),
         }
     }
 }
@@ -25,9 +46,6 @@ impl Config {
     pub async fn load(path: &str) -> Result<Self> {
         serde_yaml::from_str(&tokio::fs::read_to_string(path).await?)
             .with_context(|| "failed to deserialize config")
-    }
-    pub fn bigtable_credentials_path(&mut self, path: &str) {
-        self.bigtable.credential_type = CredentialType::Filepath(Some(path.to_string()))
     }
     pub async fn save(&self, path: &str) -> Result<()> {
         tokio::fs::write(

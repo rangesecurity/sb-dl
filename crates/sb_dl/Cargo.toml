@@ -39,6 +39,18 @@ features = ["derive"]
 version = "0.9"
 [dependencies.clap]
 version = "4"
+[dependencies.bigtable_rs]
+version = "0.2"
+[dependencies.tracing-subscriber]
+version = "0.3"
+features = ["env-filter", "json", "parking_lot", "tracing-log"]
+[dependencies.tracing]
+version = "0.1.40"
+features = ["log", "attributes"]
+[dependencies.serde_json]
+version = "1"
+[dependencies.solana-storage-proto]
+version = "1.18"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]
