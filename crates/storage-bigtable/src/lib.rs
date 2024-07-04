@@ -84,24 +84,24 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 // Convert a slot to its bucket representation whereby lower slots are always lexically ordered
 // before higher slots
-fn slot_to_key(slot: Slot) -> String {
+pub fn slot_to_key(slot: Slot) -> String {
     format!("{slot:016x}")
 }
 
-fn slot_to_blocks_key(slot: Slot) -> String {
+pub fn slot_to_blocks_key(slot: Slot) -> String {
     slot_to_key(slot)
 }
 
-fn slot_to_entries_key(slot: Slot) -> String {
+pub fn slot_to_entries_key(slot: Slot) -> String {
     slot_to_key(slot)
 }
 
-fn slot_to_tx_by_addr_key(slot: Slot) -> String {
+pub fn slot_to_tx_by_addr_key(slot: Slot) -> String {
     slot_to_key(!slot)
 }
 
 // Reverse of `slot_to_key`
-fn key_to_slot(key: &str) -> Option<Slot> {
+pub fn key_to_slot(key: &str) -> Option<Slot> {
     match Slot::from_str_radix(key, 16) {
         Ok(slot) => Some(slot),
         Err(err) => {
