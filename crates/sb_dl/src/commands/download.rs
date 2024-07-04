@@ -14,7 +14,7 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
     // load all currently indexed block number to avoid re-downloading already indexed block data
     let mut already_indexed: HashSet<u64> = {
         let mut conn = db::new_connection(&cfg.db_url)?;
-        
+
         // perform db migrations
         run_migrations(&mut conn);
 
@@ -27,7 +27,9 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
             .collect()
     };
     log::info!("starting block_indexing. disable_minimization={no_minimization}");
-    let blocks = downloader.start(&mut already_indexed, start, limit, no_minimization).await?;
+    let blocks = downloader
+        .start(&mut already_indexed, start, limit, no_minimization)
+        .await?;
 
     let mut conn = db::new_connection(&cfg.db_url)?;
     let client = db::client::Client {};
