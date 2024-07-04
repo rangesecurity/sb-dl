@@ -16,7 +16,10 @@ use {
 ///    > Exclude rewards
 ///
 /// > Encodeds with UiTransactionEncoding for easier parsing
-pub fn process_block(mut block: ConfirmedBlock, no_minimization: bool) -> anyhow::Result<UiConfirmedBlock> {
+pub fn process_block(
+    mut block: ConfirmedBlock,
+    no_minimization: bool,
+) -> anyhow::Result<UiConfirmedBlock> {
     if no_minimization == false {
         block = filter_vote_transactions(block);
     }

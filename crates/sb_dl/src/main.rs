@@ -44,11 +44,11 @@ async fn main() -> Result<()> {
                 )
                 .arg(
                     Arg::new("no-minimization")
-                    .long("no-minimization")
-                    .help("if present, disable block minimization")
-                    .action(clap::ArgAction::SetTrue)
-                    .default_value("false")
-                    .required(false)
+                        .long("no-minimization")
+                        .help("if present, disable block minimization")
+                        .action(clap::ArgAction::SetTrue)
+                        .default_value("false")
+                        .required(false),
                 ),
             Command::new("new-config"),
         ])
