@@ -1,6 +1,7 @@
 use {
     anyhow::{Context, Result},
-    solana_storage_bigtable::{CredentialType, LedgerStorageConfig}, std::time::Duration,
+    solana_storage_bigtable::{CredentialType, LedgerStorageConfig},
+    std::time::Duration,
 };
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -22,7 +23,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             bigtable: Default::default(),
-            db_url: "postgres://postgres:password123@localhost/sbdl".to_string()
+            db_url: "postgres://postgres:password123@localhost/sbdl".to_string(),
         }
     }
 }

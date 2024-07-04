@@ -1,10 +1,27 @@
 pub mod config;
-pub mod types;
 pub mod logger;
 pub mod solana_bigtable;
+pub mod types;
+pub mod utils;
 
 use {
-    anyhow::{anyhow, Context}, bigtable_rs::{bigtable::{BigTableConnection, RowCell}, google::bigtable::v2::{row_filter::Filter, ReadRowsRequest, RowFilter, RowSet}}, config::BigTableConfig, solana_bigtable::{key_to_slot, slot_to_blocks_key, slot_to_key}, solana_sdk::clock::Slot, solana_storage_bigtable::{bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData}, StoredConfirmedBlock}, solana_storage_proto::convert::generated, solana_transaction_status::ConfirmedBlock, std::collections::HashSet, types::SerializableConfirmedBlock
+    anyhow::{anyhow, Context},
+    bigtable_rs::{
+        bigtable::{BigTableConnection, RowCell},
+        google::bigtable::v2::{row_filter::Filter, ReadRowsRequest, RowFilter, RowSet},
+    },
+    config::BigTableConfig,
+    solana_bigtable::{key_to_slot, slot_to_blocks_key, slot_to_key},
+    solana_sdk::{clock::Slot, message::VersionedMessage},
+    solana_storage_bigtable::{
+        bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
+        StoredConfirmedBlock,
+    },
+    solana_storage_proto::convert::generated,
+    solana_transaction_status::{ConfirmedBlock, TransactionWithStatusMeta, UiConfirmedBlock},
+    std::collections::HashSet,
+    types::SerializableConfirmedBlock,
+    utils::minimize_and_encode_block,
 };
 
 #[derive(Clone)]
@@ -13,17 +30,17 @@ pub struct Downloader {
 }
 
 impl Downloader {
-    pub async fn new(
-        cfg: BigTableConfig,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(cfg: BigTableConfig) -> anyhow::Result<Self> {
         std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", cfg.credentials_file);
         let bigtable_conn = BigTableConnection::new(
             &cfg.project_id,
             &cfg.instance_name,
             true,
             cfg.channel_size,
-            Some(cfg.timeout)
-        ).await.with_context(|| "failed to initialize bigtable connection")?;
+            Some(cfg.timeout),
+        )
+        .await
+        .with_context(|| "failed to initialize bigtable connection")?;
         Ok(Self {
             conn: bigtable_conn,
         })
@@ -40,7 +57,7 @@ impl Downloader {
         already_indexed: &mut HashSet<u64>,
         start: Option<u64>,
         limit: Option<u64>,
-    ) -> anyhow::Result<Vec<(solana_program::clock::Slot, SerializableConfirmedBlock)>> {
+    ) -> anyhow::Result<Vec<(solana_program::clock::Slot, UiConfirmedBlock)>> {
         let start = match start {
             Some(start) => start,
             None => 0,
@@ -59,115 +76,106 @@ impl Downloader {
                 }
             })
             .collect::<Vec<solana_program::clock::Slot>>();
-        let mut slots: Vec<(solana_program::clock::Slot, SerializableConfirmedBlock)> = vec![];
+        let mut slots: Vec<(solana_program::clock::Slot, UiConfirmedBlock)> = vec![];
         for slot in slots_to_fetch {
-            self.get_confirmed_block(slot).await?;
-            //slots.push((slot, From::from(block)))
+            match self.get_confirmed_block(slot).await {
+                Ok(block) => {
+                    match minimize_and_encode_block(block) {
+                        Ok(block) => {
+                            already_indexed.insert(slot);
+                            slots.push((slot, block))
+                        }
+                        Err(err) => {
+                            log::error!("failed to minimize and encode block({slot}) {err:#?}");
+                        }
+                    }
+                    already_indexed.insert(slot);
+                }
+                Err(err) => {
+                    log::error!("failed to fetch block({slot}) {err:#?}");
+                }
+            }
         }
-        /*let slots = self
-            .ls
-            .get_confirmed_blocks_with_data(&slots_to_fetch)
-            .await
-            .with_context(|| "failed to get slots")?
-            .map(|(slot, block)| (slot, From::from(block)))
-            .collect::<Vec<_>>();*.
-
-        slots.iter().for_each(|(slot, _)| {
-            already_indexed.insert(*slot);
-        });*/
         Ok(slots)
     }
-    async fn get_confirmed_block(
-        &self,
-        slot: Slot,
-    ) -> anyhow::Result<ConfirmedBlock> {
+
+    pub async fn get_confirmed_block(&self, slot: Slot) -> anyhow::Result<ConfirmedBlock> {
         let mut client = self.conn.client();
-        let data = tokio::fs::read_to_string("data.json").await?;
-        let block: SerializedBlock = serde_json::from_str(&data).unwrap();
-        let key = slot_to_key(block.slot);
-        let cell_name = String::from_utf8(block.cells[0].qualifier.clone()).unwrap();
-        let cell_data = deserialize_protobuf_or_bincode_cell_data::<StoredConfirmedBlock, generated::ConfirmedBlock>(
-            &[(cell_name, block.cells[0].value.clone())],
-            "blocks",
-            key,
-        ).unwrap();
-        println!("decoded cell data");
-        let c_block: ConfirmedBlock = match cell_data {
-            CellData::Bincode(block) => {
-                block.into()
-            }
-            CellData::Protobuf(block) => {
-                block.try_into().unwrap()
-            }
-        };
-        println!("txns {}", c_block.transactions.len());
-        println!("decoded block");
-        /*let response = client.read_rows(ReadRowsRequest {
-            table_name: client.get_full_table_name("blocks"),
-            app_profile_id: "default".to_string(),
-            rows_limit: 1,
-            rows: Some(RowSet {
-                row_keys: vec![slot_to_blocks_key(slot).into()],
-                row_ranges: vec![]
-            }),
-            filter: Some(RowFilter {
+        let response = client
+            .read_rows(ReadRowsRequest {
+                table_name: client.get_full_table_name("blocks"),
+                app_profile_id: "default".to_string(),
+                rows_limit: 1,
+                rows: Some(RowSet {
+                    row_keys: vec![slot_to_blocks_key(slot).into()],
+                    row_ranges: vec![],
+                }),
+                filter: Some(RowFilter {
                     // Only return the latest version of each cell
                     filter: Some(Filter::CellsPerColumnLimitFilter(1)),
-            }),
-            request_stats_view: 0,
-            reversed: false,
-        }).await.with_context(|| "Failed to get confirmed block")?;
-        println!("response_count {}", response.len());
-        for res in response {
-            let slot = match String::from_utf8(res.0) {
-                Ok(name) => {
-                    if let Some(slot) = key_to_slot(&name) {
-                        println!("slot {slot}");
-                        slot
-                    } else {
-                        println!("failed to convert key to slot");
-                        continue;
-                    }
-                },
-                Err(err) => {
-                    println!("failed to decode {err:#?}");
-                    continue;
+                }),
+                request_stats_view: 0,
+                reversed: false,
+            })
+            .await
+            .with_context(|| format!("failed to get block for slot({slot})"))?;
+
+        // todo: is this needed? need more testing to confirm
+        if response.len() != 1 {
+            return Err(anyhow!(
+                "mismatched response length. got {}, want {}",
+                response.len(),
+                1
+            ));
+        }
+
+        // parse the key from the response
+        let key = String::from_utf8(response[0].0.clone())
+            .with_context(|| format!("failed to parse key for slot({slot})"))?;
+
+        // do we need to do this? it seems excessive
+        /*match key_to_slot(&key).with_context(|| format!("failed to parse slot({slot}) response")) {
+            Some(keyed_slot) => {
+                if keyed_slot != slot {
+                    return Err(anyhow!("keyed_slot({keyed_slot}) != slot({slot}"))
                 }
-            };
-            let to_save = SerializedBlock {
-                slot,
-                cells: res.1.into_iter().map(|r| From::from(r)).collect(),
-            };
-            tokio::fs::write("data.json", serde_json::to_string(&to_save).unwrap()).await.unwrap();
+                keyed_slot
+            }
+            None => return Err(anyhow!("failed to parse key to slot"))
+        }*/
+
+        if response[0].1.len() != 1 {
+            return Err(anyhow!(
+                "mismatched cell count for slot({slot}). got {} want {}",
+                response[0].1.len(),
+                1
+            ));
         }
-        */Err(anyhow!("TODO"))
-    }
-}
 
+        let cell_name = String::from_utf8(response[0].1[0].qualifier.clone())
+            .with_context(|| format!("failed to parse cell_name for slot({slot})"))?;
 
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct SerializedBlock {
-    pub slot: u64,
-    pub cells: Vec<RowCellSerializable>,
-}
+        let cell_data = deserialize_protobuf_or_bincode_cell_data::<
+            StoredConfirmedBlock,
+            generated::ConfirmedBlock,
+        >(
+            &[(cell_name, response[0].1[0].value.clone())],
+            "blocks",
+            key,
+        )
+        .with_context(|| "failed to decode cell data for slot({slot})")?;
 
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct RowCellSerializable {
-    pub family_name: String,
-    pub qualifier: Vec<u8>,
-    pub value: Vec<u8>,
-    pub timestamp_micros: i64,
-    pub labels: Vec<String>,
-}
-
-impl From<RowCell> for RowCellSerializable {
-    fn from(value: RowCell) -> Self {
-        Self {
-            family_name: value.family_name,
-            qualifier: value.qualifier,
-            value: value.value,
-            timestamp_micros: value.timestamp_micros,
-            labels: value.labels
-        }
+        let confirmed_block: ConfirmedBlock = match cell_data {
+            CellData::Bincode(block) => block.into(),
+            CellData::Protobuf(block) => match block.try_into() {
+                Ok(block) => block,
+                Err(err) => {
+                    return Err(anyhow!(
+                        "failed to parse cell_data for slot({slot}) {err:#?}"
+                    ))
+                }
+            },
+        };
+        Ok(confirmed_block)
     }
 }

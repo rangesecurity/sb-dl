@@ -1,9 +1,6 @@
 //! client utilities from solana-storage-bigtable
 
-use {
-    solana_sdk::clock::Slot,
-    log::warn,
-};
+use {log::warn, solana_sdk::clock::Slot};
 
 // Convert a slot to its bucket representation whereby lower slots are always lexically ordered
 // before higher slots

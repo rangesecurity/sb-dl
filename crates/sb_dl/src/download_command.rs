@@ -22,23 +22,19 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
 
     let blocks = downloader.start(&mut already_indexed, start, limit).await?;
 
-    println!("indexed {} blocks", blocks.len());
+    let mut conn = db::new_connection(&cfg.db_url)?;
+    let client = db::client::Client {};
     for (slot, block) in blocks {
-        println!("==== slot {slot} ====");
-        println!("txs {}", block.transactions.len());
-        for tx in &block.transactions {
-            match tx {
-                SerializableTransactionWithStatusMeta::MissingMetadata(tx) => {
-                    println!("missing_metadata {tx:#?}");
+        match serde_json::to_value(block) {
+            Ok(block) => {
+                if let Err(err) = client.insert_block(&mut conn, slot as i64, block) {
+                    log::error!("failed to persist block({slot}) {err:#?}");
                 }
-                SerializableTransactionWithStatusMeta::Complete(tx) => {
-                    println!("complete {tx:#?}");
-                }
+            }
+            Err(err) => {
+                log::error!("failed to serialize block({slot}) {err:#?}");
             }
         }
     }
-
-    // todo: store in postgres
-
     Ok(())
 }

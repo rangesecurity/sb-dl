@@ -1,6 +1,6 @@
+use std::str::FromStr;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, Layer};
-use std::str::FromStr;
 pub struct LogOpts {
     pub level: String,
     pub file: String,
