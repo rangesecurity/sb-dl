@@ -43,16 +43,18 @@ impl Downloader {
     ///
     /// # Parameters
     ///
+    /// `blocks_tx`: channel which downloaded blocks are sent too
     /// `already_indexed`: the slots for which we have already downloaded blocks
     /// `start`: optional slot to start downloading from, if None starts at slot 0
     /// `limit`: max number of slots to index, if None use latest slot as bound
     pub async fn start(
         &self,
-        already_indexed: &mut HashSet<u64>,
+        blocks_tx: tokio::sync::mpsc::Sender<(u64, UiConfirmedBlock)>,
+        already_indexed: HashSet<u64>,
         start: Option<u64>,
         limit: Option<u64>,
         no_minimization: bool,
-    ) -> anyhow::Result<Vec<(solana_program::clock::Slot, UiConfirmedBlock)>> {
+    ) -> anyhow::Result<()> {
         let start = match start {
             Some(start) => start,
             None => 0,
@@ -77,7 +79,6 @@ impl Downloader {
             })
             .collect::<Vec<solana_program::clock::Slot>>();
 
-        let mut slots: Vec<(solana_program::clock::Slot, UiConfirmedBlock)> = Vec::with_capacity(slots_to_fetch.len());
 
         for slot in slots_to_fetch {
 
@@ -88,8 +89,9 @@ impl Downloader {
                     // post process the block to handle encoding and space minimization
                     match process_block(block, no_minimization) {
                         Ok(block) => {
-                            already_indexed.insert(slot);
-                            slots.push((slot, block))
+                            if let Err(err) = blocks_tx.send((slot, block)).await {
+                                log::error!("failed to send block({slot}) {err:#?}");
+                            }
                         }
                         Err(err) => {
                             log::error!("failed to minimize and encode block({slot}) {err:#?}");
@@ -102,7 +104,7 @@ impl Downloader {
             }
         }
 
-        Ok(slots)
+        Ok(())
     }
 
     pub async fn get_confirmed_block(&self, slot: Slot) -> anyhow::Result<ConfirmedBlock> {
