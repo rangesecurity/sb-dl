@@ -1,26 +1,21 @@
 pub mod config;
-pub mod logger;
-pub mod solana_bigtable;
-pub mod types;
 pub mod utils;
 
 use {
     anyhow::{anyhow, Context},
     bigtable_rs::{
-        bigtable::{BigTableConnection, RowCell},
+        bigtable::BigTableConnection,
         google::bigtable::v2::{row_filter::Filter, ReadRowsRequest, RowFilter, RowSet},
     },
     config::BigTableConfig,
-    solana_bigtable::{key_to_slot, slot_to_blocks_key, slot_to_key},
-    solana_sdk::{clock::Slot, message::VersionedMessage},
+    solana_sdk::clock::Slot,
     solana_storage_bigtable::{
         bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
-        StoredConfirmedBlock,
+        slot_to_blocks_key, StoredConfirmedBlock,
     },
     solana_storage_proto::convert::generated,
-    solana_transaction_status::{ConfirmedBlock, TransactionWithStatusMeta, UiConfirmedBlock},
+    solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock},
     std::collections::HashSet,
-    types::SerializableConfirmedBlock,
     utils::minimize_and_encode_block,
 };
 

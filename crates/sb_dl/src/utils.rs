@@ -1,8 +1,12 @@
-use anyhow::Context;
-use solana_sdk::message::VersionedMessage;
-use solana_transaction_status::{
-    BlockEncodingOptions, ConfirmedBlock, TransactionDetails, TransactionWithStatusMeta,
-    UiConfirmedBlock, UiTransactionEncoding,
+use {
+    anyhow::Context,
+    solana_sdk::message::VersionedMessage,
+    solana_transaction_status::{
+        BlockEncodingOptions, ConfirmedBlock, TransactionDetails, TransactionWithStatusMeta,
+        UiConfirmedBlock, UiTransactionEncoding,
+    },
+    std::str::FromStr,
+    tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter, Layer},
 };
 
 /// Performs the following
@@ -102,16 +106,48 @@ pub fn filter_vote_transactions(mut block: ConfirmedBlock) -> ConfirmedBlock {
     block
 }
 
+/// initializes logging capabilities but adds a variety of customization, including file+line which sourced the log,
+/// a tokio-console used for monitoring async tasks, as well as log-level filtration
+pub fn init_log(level: &str, file: &str) {
+    let mut layers = Vec::with_capacity(2);
+    let level_filter = LevelFilter::from_level(tracing::Level::from_str(level).unwrap());
+    let filter = EnvFilter::from_default_env().add_directive(level_filter.into());
+
+    layers.push(
+        tracing_subscriber::fmt::layer()
+            .with_level(true)
+            .with_line_number(true)
+            .with_file(true)
+            .with_filter(filter)
+            .boxed(),
+    );
+    if file != "" {
+        let log_file = std::fs::File::options()
+            .create(true)
+            .append(true)
+            .open(file)
+            .unwrap();
+        layers.push(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_writer(log_file)
+                .with_filter(EnvFilter::from_default_env().add_directive(level_filter.into()))
+                .boxed(),
+        );
+    }
+    if let Err(err) = tracing_subscriber::registry().with(layers).try_init() {
+        log::warn!("global subscriber already registered {err:#?}");
+    }
+}
+
 #[cfg(test)]
 mod test {
     use bigtable_rs::bigtable::RowCell;
     use solana_storage_bigtable::{
         bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
-        StoredConfirmedBlock,
+        slot_to_key, StoredConfirmedBlock,
     };
     use solana_storage_proto::convert::generated;
-
-    use crate::solana_bigtable::slot_to_key;
 
     use super::*;
     #[derive(serde::Serialize, serde::Deserialize)]

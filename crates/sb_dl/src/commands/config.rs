@@ -1,4 +1,3 @@
-use clap::ArgMatches;
 use sb_dl::config::Config;
 
 pub async fn new_config(config_path: &str) -> anyhow::Result<()> {

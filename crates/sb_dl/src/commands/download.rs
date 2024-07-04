@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use clap::ArgMatches;
-use sb_dl::{config::Config, types::SerializableTransactionWithStatusMeta, Downloader};
+use sb_dl::{config::Config, Downloader};
 
 pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;
