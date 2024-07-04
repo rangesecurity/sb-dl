@@ -11,13 +11,15 @@ use {
 
 /// Performs the following
 ///
-/// > Space minimization
+/// > Space minimization (optional)
 ///    > filter vote transactions
 ///    > Exclude rewards
 ///
 /// > Encodeds with UiTransactionEncoding for easier parsing
-pub fn minimize_and_encode_block(block: ConfirmedBlock) -> anyhow::Result<UiConfirmedBlock> {
-    let block = filter_vote_transactions(block);
+pub fn process_block(mut block: ConfirmedBlock, no_minimization: bool) -> anyhow::Result<UiConfirmedBlock> {
+    if no_minimization == false {
+        block = filter_vote_transactions(block);
+    }
     block
         .encode_with_options(
             UiTransactionEncoding::JsonParsed,
@@ -190,12 +192,14 @@ mod test {
         >(&[(cell_name, block.cells[0].value.clone())], "blocks", key)
         .unwrap();
 
-        let mut c_block: ConfirmedBlock = match cell_data {
+        let c_block: ConfirmedBlock = match cell_data {
             CellData::Bincode(block) => block.into(),
             CellData::Protobuf(block) => block.try_into().unwrap(),
         };
         assert_eq!(c_block.transactions.len(), 1109);
-        let ui_block = minimize_and_encode_block(c_block).unwrap();
+        let ui_block = process_block(c_block.clone(), true).unwrap();
+        assert_eq!(ui_block.transactions.unwrap().len(), 1109);
+        let ui_block = process_block(c_block.clone(), false).unwrap();
         assert_eq!(ui_block.transactions.unwrap().len(), 405);
     }
 }

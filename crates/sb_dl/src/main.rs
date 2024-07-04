@@ -1,7 +1,7 @@
 pub mod commands;
 
 use {
-    anyhow::{anyhow, Context, Result},
+    anyhow::{anyhow, Result},
     clap::{value_parser, Arg, ArgMatches, Command},
     sb_dl::utils::init_log,
 };
@@ -41,6 +41,14 @@ async fn main() -> Result<()> {
                         .help("max number of slots to index")
                         .value_parser(value_parser!(u64))
                         .required(false),
+                )
+                .arg(
+                    Arg::new("no-minimization")
+                    .long("no-minimization")
+                    .help("if present, disable block minimization")
+                    .action(clap::ArgAction::SetTrue)
+                    .default_value("false")
+                    .required(false)
                 ),
             Command::new("new-config"),
         ])

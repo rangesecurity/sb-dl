@@ -16,7 +16,7 @@ use {
     solana_storage_proto::convert::generated,
     solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock},
     std::collections::HashSet,
-    utils::minimize_and_encode_block,
+    utils::process_block,
 };
 
 #[derive(Clone)]
@@ -52,6 +52,7 @@ impl Downloader {
         already_indexed: &mut HashSet<u64>,
         start: Option<u64>,
         limit: Option<u64>,
+        no_minimization: bool,
     ) -> anyhow::Result<Vec<(solana_program::clock::Slot, UiConfirmedBlock)>> {
         let start = match start {
             Some(start) => start,
@@ -75,7 +76,7 @@ impl Downloader {
         for slot in slots_to_fetch {
             match self.get_confirmed_block(slot).await {
                 Ok(block) => {
-                    match minimize_and_encode_block(block) {
+                    match process_block(block, no_minimization) {
                         Ok(block) => {
                             already_indexed.insert(slot);
                             slots.push((slot, block))

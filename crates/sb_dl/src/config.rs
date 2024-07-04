@@ -1,6 +1,5 @@
 use {
     anyhow::{Context, Result},
-    solana_storage_bigtable::{CredentialType, LedgerStorageConfig},
     std::time::Duration,
 };
 
