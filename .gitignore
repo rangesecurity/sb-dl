@@ -4,3 +4,5 @@
 config.yaml
 
 failed_blocks/
+
+ansible/inventories/host_vars/

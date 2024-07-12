@@ -1,0 +1,31 @@
+---
+- hosts: all
+  gather_facts: yes
+
+  tasks:
+    - name: Ship binary to server
+      synchronize:
+        src: ../target/release/sb_dl
+        dest: '{{app_root}}/sb_dl'
+        recursive: yes
+        delete: yes
+
+    - name: Ship config to server
+      synchronize:
+        src: ../config.yaml
+        dest: '{{app_root}}/config.yaml'
+        recursive: yes
+        delete: yes
+
+    - name: Ship geyser stream service to server
+      template:
+        src: "geyser_stream.service.j2"
+        dest: "/etc/systemd/system/geyser_stream.service"
+        mode: 0755
+
+    - name: Configuring geyser stream service
+      service:
+        name: geyser_stream
+        state: restarted
+        enabled: true
+        daemon_reload: true
