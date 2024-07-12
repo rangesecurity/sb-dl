@@ -26,6 +26,7 @@ pub async fn new_geyser_client(
         .timeout(Duration::from_secs(10))
         .max_decoding_message_size(max_decoding_size)
         .max_encoding_message_size(max_encoding_size)
+        .tcp_nodelay(true)
         .connect()
         .await?;
     Ok(client)
