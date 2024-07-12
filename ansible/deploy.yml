@@ -23,9 +23,22 @@
         dest: "/etc/systemd/system/geyser_stream.service"
         mode: 0755
 
+    - name: Ship bigtable downloader service to server
+      template:
+        src: "bigtable_downloader.service.j2"
+        dest: "/etc/systemd/system/bigtable_downloader.service"
+        mode: 0755
+
     - name: Configuring geyser stream service
       service:
         name: geyser_stream
+        state: restarted
+        enabled: true
+        daemon_reload: true
+
+    - name: Configuring bigtable downloader service
+      service:
+        name: bigtable_downloader
         state: restarted
         enabled: true
         daemon_reload: true
