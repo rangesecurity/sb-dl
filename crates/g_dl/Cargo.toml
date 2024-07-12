@@ -20,3 +20,11 @@ version = "0.3"
 version = "0.3"
 [dependencies.log]
 version = "0.4"
+[dependencies.solana-transaction-status]
+version = "1.18"
+[dependencies.solana-program]
+version = "1.18"
+[dependencies.solana-account-decoder]
+version = "1.18"
+[dependencies.solana-sdk]
+version = "1.18"
