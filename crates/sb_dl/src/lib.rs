@@ -1,5 +1,6 @@
 pub mod config;
 pub mod utils;
+pub mod geyser;
 
 use {
     anyhow::{anyhow, Context},

@@ -53,6 +53,14 @@ version = "1"
 version = "1.18"
 [dependencies.regex]
 version = "1"
+[dependencies.yellowstone-grpc-proto]
+git = "https://github.com/rpcpool/yellowstone-grpc"
+rev = "87e1755b0d7a4e8101cb5feb6f30063aa91f343f"
+[dependencies.yellowstone-grpc-client]
+git = "https://github.com/rpcpool/yellowstone-grpc"
+rev = "87e1755b0d7a4e8101cb5feb6f30063aa91f343f"
+[dependencies.futures]
+version = "0.3"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]

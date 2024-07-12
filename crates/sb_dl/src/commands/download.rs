@@ -3,8 +3,7 @@ use std::collections::HashSet;
 use clap::ArgMatches;
 use db::migrations::run_migrations;
 use sb_dl::{
-    config::{self, Config},
-    Downloader,
+    config::{self, Config}, geyser::{new_geyser_client, subscribe_blocks}, Downloader
 };
 use serde_json::Value;
 use solana_transaction_status::UiConfirmedBlock;
@@ -134,6 +133,118 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
         }
     }
 }
+
+pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+    let cfg = Config::load(config_path).await?;
+    let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
+
+    // create failed blocks directory, ignoring error (its already created)
+    let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
+
+    let no_minimization = matches.get_flag("no-minimization");
+
+    {
+        let mut conn = db::new_connection(&cfg.db_url)?;
+
+        // perform db migrations
+        run_migrations(&mut conn);
+    }
+    
+    let gc = new_geyser_client(
+        &cfg.geyser.endpoint,
+        &cfg.geyser.token,
+        cfg.geyser.max_decoding_size,
+        cfg.geyser.max_encoding_size
+    ).await?;
+
+    // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
+    let (blocks_tx, mut blocks_rx) =
+        tokio::sync::mpsc::channel::<(u64, UiConfirmedBlock)>(1000);
+
+    let mut sig_quit = signal(SignalKind::quit())?;
+    let mut sig_int = signal(SignalKind::interrupt())?;
+    let mut sig_term = signal(SignalKind::terminate())?;
+
+    // if we fail to connect to postgres, we should terminate the thread
+    let mut conn = db::new_connection(&cfg.db_url)?;
+
+    // start the background persistence task
+    tokio::task::spawn(async move {
+        let client = db::client::Client {};
+
+        while let Some((slot, block)) = blocks_rx.recv().await {
+            match serde_json::to_value(block) {
+                Ok(mut block) => {
+                    if client
+                        .insert_block(&mut conn, slot as i64, block.clone())
+                        .is_err()
+                    {
+                        // block failed to be inserted into postgres
+                        // so sanitize json and persist the block on disk
+                        sanitize_value(&mut block);
+                        match serde_json::to_string(&block) {
+                            Ok(block_str) => {
+                                if let Err(err) = tokio::fs::write(
+                                    format!("{failed_blocks_dir}/block_{slot}.json"),
+                                    block_str,
+                                )
+                                .await
+                                {
+                                    log::error!("failed to store failed block({slot}) {err:#?}");
+                                } else {
+                                    log::warn!("block({slot}) failed to persist, saved to {failed_blocks_dir}/block_{slot}.json");
+                                }
+                            }
+                            Err(err) => {
+                                log::error!("failed to json serialize block({slot}) {err:#?}");
+                            }
+                        }
+                    } else {
+                        log::info!("persisted block({slot})");
+                    }
+                }
+                Err(err) => {
+                    log::error!("failed to serialize block({slot}) {err:#?}");
+                }
+            }
+        }
+    });
+
+    let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+
+    tokio::task::spawn(async move {
+        log::info!("starting geyser stream. disable_minimization={no_minimization}");
+        if let Err(err) = subscribe_blocks(
+            gc,
+            blocks_tx,
+            no_minimization
+        ).await {
+            log::error!("geyser stream failed {err:#?}");
+        }
+        log::info!("geyser stream finished");
+        let _ = finished_tx.send(());
+    });
+
+    // handle exit routines
+    tokio::select! {
+        _ = sig_quit.recv() => {
+            log::warn!("goodbye..");
+            return Ok(());
+        }
+        _ = sig_int.recv() => {
+            log::warn!("goodbye..");
+            return Ok(());
+        }
+        _ = sig_term.recv() => {
+            log::warn!("goodbye..");
+            return Ok(());
+        }
+        _ = finished_rx => {
+            return Ok(());
+        }
+    }
+}
+
 
 pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;

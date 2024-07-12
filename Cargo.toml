@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "crates/db","crates/sb_dl", "crates/storage-bigtable", "crates/storage-bigtable/build-proto"]
+members = [ "crates/db", "crates/sb_dl", "crates/storage-bigtable", "crates/storage-bigtable/build-proto"]
 [profile.release]
 opt-level = 3
 lto = "fat"
