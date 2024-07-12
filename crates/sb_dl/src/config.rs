@@ -7,6 +7,15 @@ use {
 pub struct Config {
     pub bigtable: BigTableConfig,
     pub db_url: String,
+    pub geyser: Geyser,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct Geyser {
+    pub endpoint: String,
+    pub token: String,
+    pub max_decoding_size: usize,
+    pub max_encoding_size: usize,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -25,6 +34,12 @@ impl Default for Config {
         Self {
             bigtable: Default::default(),
             db_url: "postgres://postgres:password123@localhost/sbdl".to_string(),
+            geyser: Geyser {
+                endpoint: "".to_string(),
+                token: "".to_string(),
+                max_decoding_size: 100*1024*1024,
+                max_encoding_size: 100*1024*1024
+            }
         }
     }
 }

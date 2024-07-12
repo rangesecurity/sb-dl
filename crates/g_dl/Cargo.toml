@@ -1,0 +1,22 @@
+[package]
+name = "g_dl"
+version = "0.1.0"
+edition = "2021"
+description = "cli for streaming blocks from geyser"
+
+[dependencies.yellowstone-grpc-proto]
+git = "https://github.com/rpcpool/yellowstone-grpc"
+rev = "87e1755b0d7a4e8101cb5feb6f30063aa91f343f"
+[dependencies.yellowstone-grpc-client]
+git = "https://github.com/rpcpool/yellowstone-grpc"
+rev = "87e1755b0d7a4e8101cb5feb6f30063aa91f343f"
+[dependencies.anyhow]
+version = "1"
+[dependencies.tonic]
+version = "0.12"
+[dependencies.futures-util]
+version = "0.3"
+[dependencies.futures]
+version = "0.3"
+[dependencies.log]
+version = "0.4"

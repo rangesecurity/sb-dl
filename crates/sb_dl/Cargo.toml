@@ -57,3 +57,5 @@ version = "1"
 path = "../db"
 [dependencies.solana-storage-bigtable]
 path = "../storage-bigtable"
+[dependencies.g_dl]
+path = "../g_dl"

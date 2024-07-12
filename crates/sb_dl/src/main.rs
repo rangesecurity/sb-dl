@@ -9,7 +9,7 @@ use {
 #[tokio::main]
 async fn main() -> Result<()> {
     let matches = Command::new("sb_dl")
-        .about("solana bigtable downloader")
+        .about("solana block downloader")
         .arg(
             Arg::new("log-level")
                 .long("log-level")
@@ -66,6 +66,7 @@ async fn main() -> Result<()> {
                     .required(false)
                 ),
             Command::new("new-config"),
+            Command::new("geyser-stream")
         ])
         .get_matches();
 
@@ -83,6 +84,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("download", dl)) => commands::download::start(dl, config_path).await,
         Some(("import-failed-blocks", ifb)) => commands::download::import_failed_blocks(ifb, config_path).await,
         Some(("new-config", _)) => commands::config::new_config(config_path).await,
+        Some(("geyser-stream", gs)) => commands::geyser::stream_geyser_blocks(gs, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }
