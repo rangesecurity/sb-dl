@@ -1,6 +1,7 @@
 pub mod config;
 pub mod utils;
 pub mod geyser;
+pub mod idl;
 
 use {
     anyhow::{anyhow, Context},

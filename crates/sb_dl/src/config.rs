@@ -8,6 +8,7 @@ pub struct Config {
     pub bigtable: BigTableConfig,
     pub db_url: String,
     pub geyser: Geyser,
+    pub rpc_url: String,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -34,6 +35,7 @@ impl Default for Config {
         Self {
             bigtable: Default::default(),
             db_url: "postgres://postgres:password123@localhost/sbdl".to_string(),
+            rpc_url: "".to_string(),
             geyser: Geyser {
                 endpoint: "".to_string(),
                 token: "".to_string(),
