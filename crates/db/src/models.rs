@@ -8,9 +8,28 @@ pub struct Blocks {
     pub data: serde_json::Value,
 }
 
+#[derive(Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable, Default, Insertable)]
+#[diesel(table_name = super::schema::idls)]
+pub struct Idls {
+    pub id: String,
+    pub begin_height: i64,
+    pub end_height: Option<i64>,
+    pub idl: serde_json::Value,
+}
+
 #[derive(Insertable)]
 #[diesel(table_name = super::schema::blocks)]
 pub struct NewBlock {
     pub number: i64,
     pub data: serde_json::Value,
+}
+
+
+#[derive(Insertable)]
+#[diesel(table_name = super::schema::idls)]
+pub struct NewIdl {
+    pub id: String,
+    pub begin_height: i64,
+    pub end_height: Option<i64>,
+    pub idl: serde_json::Value,
 }
