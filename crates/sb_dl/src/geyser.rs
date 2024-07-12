@@ -43,8 +43,8 @@ pub async fn subscribe_blocks(
         SubscribeRequestFilterBlocks {
             account_include: vec![],
             include_transactions: Some(true),
-            include_accounts: Some(true),
-            include_entries: Some(true),
+            include_accounts: Some(false),
+            include_entries: Some(false),
         },
     );
     let (mut subscribe_tx, mut stream) = client
