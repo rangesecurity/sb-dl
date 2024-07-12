@@ -95,8 +95,9 @@ pub async fn subscribe_blocks(
                         log::error!("failed to convert block {err:#?}")
                     }
                 },
+                Some(UpdateOneof::Pong(_)) => {},
                 Some(msg_one_of) => {
-                    log::warn!("unsupported message received {:?}", msg_one_of.type_id());
+                    log::warn!("unsupported message received {msg_one_of:#?}");
                 }
                 None => {}
             },
