@@ -67,6 +67,21 @@ async fn main() -> Result<()> {
                 ),
             Command::new("new-config"),
             Command::new("geyser-stream")
+            .arg(
+                Arg::new("no-minimization")
+                    .long("no-minimization")
+                    .help("if present, disable block minimization")
+                    .action(clap::ArgAction::SetTrue)
+                    .default_value("false")
+                    .required(false),
+            )
+            .arg(
+                Arg::new("failed-blocks")
+                .long("failed-blocks")
+                .help("directory to store failed blocks in")
+                .default_value("failed_blocks")
+                .required(false)
+            ),
         ])
         .get_matches();
 
@@ -84,7 +99,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("download", dl)) => commands::download::start(dl, config_path).await,
         Some(("import-failed-blocks", ifb)) => commands::download::import_failed_blocks(ifb, config_path).await,
         Some(("new-config", _)) => commands::config::new_config(config_path).await,
-        Some(("geyser-stream", gs)) => commands::geyser::stream_geyser_blocks(gs, config_path).await,
+        Some(("geyser-stream", gs)) => commands::download::stream_geyser_blocks(gs, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }

@@ -1,20 +1,17 @@
 use {
+    crate::utils::process_block,
     anyhow::{Context, Result},
-    futures::{future::TryFutureExt, sink::SinkExt, stream::StreamExt},
-    solana_account_decoder::parse_token::{UiTokenAccount, UiTokenAmount},
-    solana_program::{instruction::CompiledInstruction, pubkey::Pubkey},
-    solana_sdk::{message::VersionedMessage, signature::Signature, transaction::VersionedTransaction, transaction_context::TransactionReturnData},
-    solana_transaction_status::{
-        ConfirmedBlock, InnerInstruction, InnerInstructions, TransactionStatusMeta,
-        TransactionTokenBalance, TransactionWithStatusMeta, UiTransactionReturnData,
-        VersionedTransactionWithStatusMeta,
-    },
+    futures::{sink::SinkExt, stream::StreamExt},
+    solana_transaction_status::UiConfirmedBlock,
     std::{any::Any, collections::HashMap, time::Duration},
     yellowstone_grpc_client::{GeyserGrpcClient, Interceptor},
-    yellowstone_grpc_proto::{convert_from::create_block, geyser::{
-        subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest,
-        SubscribeRequestFilterBlocks, SubscribeRequestPing, SubscribeUpdateBlock,
-    }},
+    yellowstone_grpc_proto::{
+        convert_from::create_block,
+        geyser::{
+            subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest,
+            SubscribeRequestFilterBlocks, SubscribeRequestPing,
+        },
+    },
 };
 
 pub async fn new_geyser_client(
@@ -34,7 +31,11 @@ pub async fn new_geyser_client(
     Ok(client)
 }
 
-pub async fn subscribe_blocks(mut client: GeyserGrpcClient<impl Interceptor>) -> Result<()> {
+pub async fn subscribe_blocks(
+    mut client: GeyserGrpcClient<impl Interceptor>,
+    blocks_tx: tokio::sync::mpsc::Sender<(u64, UiConfirmedBlock)>,
+    no_minimization: bool,
+) -> Result<()> {
     let mut blocks: HashMap<String, SubscribeRequestFilterBlocks> = Default::default();
     blocks.insert(
         "client".to_owned(),
@@ -75,20 +76,25 @@ pub async fn subscribe_blocks(mut client: GeyserGrpcClient<impl Interceptor>) ->
                         log::error!("failed to send ping {err:#?}");
                     }
                 }
-                Some(UpdateOneof::Block(block)) => {
-                    match create_block(block) {
+                Some(UpdateOneof::Block(block)) => match create_block(block) {
+                    Ok(block) => match process_block(block, no_minimization) {
                         Ok(block) => {
-                            log::info!(
-                                "received block(height={:?})",
-                                block.block_height,
-                            );
+                            if let Some(block_height) = block.block_height {
+                                if let Err(err) = blocks_tx.send((block_height, block)).await {
+                                    log::error!("failed to notify new block {err:#?}");
+                                }
+                            } else {
+                                log::warn!("missing block height");
+                            }
                         }
                         Err(err) => {
-                            log::error!("failed to convert block {err:#?}")
+                            log::error!("failed to process block {err:#?}");
                         }
+                    },
+                    Err(err) => {
+                        log::error!("failed to convert block {err:#?}")
                     }
-
-                }
+                },
                 Some(msg_one_of) => {
                     log::warn!("unsupported message received {:?}", msg_one_of.type_id());
                 }
