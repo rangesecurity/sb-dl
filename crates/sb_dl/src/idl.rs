@@ -1,45 +1,137 @@
-use std::time::Duration;
+use std::{io::Read, time::Duration};
 
 use anyhow::Context;
 use solana_account_decoder::UiAccountEncoding;
-use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig}};
+use solana_client::{
+    nonblocking::rpc_client::RpcClient,
+    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
+};
 use solana_sdk::pubkey::Pubkey;
-
+use flate2::read::GzDecoder;
+use flate2::read::ZlibDecoder;
+use flate2::write::{GzEncoder, ZlibEncoder};
+use flate2::Compression;
 const IDL_SEED: &str = "anchor:idl";
 
+
+#[derive(borsh::BorshDeserialize, borsh::BorshSerialize)]
+pub struct IdlAccount {
+    // Address that can modify the IDL.
+    pub authority: Pubkey,
+    // Length of compressed idl bytes.
+    pub data_len: u32,
+    // Followed by compressed idl bytes.
+}
+
+pub struct ProgramIdl {
+    pub program_id: Pubkey,
+    pub idl: serde_json::Value,
+}
+
 pub struct IdlIndexer {
-    rpc: RpcClient
+    rpc: RpcClient,
 }
 
 impl IdlIndexer {
-    pub async fn new(
-        endpoint: &str
-    ) -> anyhow::Result<Self> {
+    pub async fn new(endpoint: &str) -> anyhow::Result<Self> {
         let rpc = RpcClient::new_with_timeout(endpoint.to_string(), Duration::from_secs(600));
-        Ok(Self {rpc})
+        Ok(Self { rpc })
     }
     /// returns all possible accounts used to store idl's for deployed programs
-    pub async fn get_idl_accounts(&self) -> anyhow::Result<()> {
-        let program_accounts = self.rpc.get_program_accounts_with_config(
-            &"BPFLoaderUpgradeab1e11111111111111111111111".parse::<Pubkey>()?,
-            RpcProgramAccountsConfig {
-                account_config: RpcAccountInfoConfig {
-                    encoding: Some(UiAccountEncoding::Base64),
-                    ..Default::default()
-                },
-                ..Default::default()
-            }
-        ).await.with_context(|| "failed to get program accounts")?;
-        let program_idls = program_accounts.into_iter().map(|(program, _)| {
+    pub async fn get_idl_accounts(&self, programs: &[Pubkey]) -> anyhow::Result<Vec<ProgramIdl>> {
+        let program_idls = programs
+            .into_iter()
+            .filter_map(|(program)| {
+                Some((program, IdlAccount::address(&program).ok()?))
+            })
+            .collect::<Vec<_>>();
 
-            // Generate the PDA (Program Derived Address)
-            let (idl_address, _) = Pubkey::find_program_address(
-                &[IDL_SEED.as_bytes()],
-                &program
-            );
-            (program, idl_address)
-        }).collect::<Vec<_>>();
-        log::info!("found {} total programs", program_idls.len());
-        Ok(())
+        let mut idls = Vec::with_capacity(program_idls.len());
+        for program_idl_chunk in program_idls.chunks(100) {
+            for (idx, account) in self
+                .rpc
+                .get_multiple_accounts_with_config(
+                    &program_idl_chunk
+                        .iter()
+                        .map(|(_, idl)| *idl)
+                        .collect::<Vec<_>>(),
+                    RpcAccountInfoConfig {
+                        encoding: Some(UiAccountEncoding::Base64Zstd),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .with_context(|| "failed to fetch multiple accounts")?
+                .value
+                .into_iter()
+                .enumerate()
+                .filter_map(|(idx, acct)| Some((idx, acct?)))
+            {
+                if account.data.is_empty() || account.data.len() < 8 {
+                    continue;
+                }
+                match borsh::BorshDeserialize::deserialize(&mut &account.data[8..]) {
+                    Ok(idl_account) => {
+                        let idl_account: IdlAccount = idl_account;
+                        if idl_account.data_len == 0 {
+                            continue;
+                        }
+                        let compressed_len: usize = idl_account.data_len.try_into().unwrap();
+                        let compressed_bytes = &account.data[44..44 + compressed_len];
+                        let mut z = ZlibDecoder::new(compressed_bytes);
+                        let mut s = Vec::new();
+                        if let Err(err)  = z.read_to_end(&mut s) {
+                            log::error!("deflate stream read failed for pid({}) idl({}) {err:#?}", program_idls[idx].0, program_idls[idx].1)   ;
+                        }
+                        
+                        match serde_json::from_slice(&s[..]) {
+                            Ok(idl_json) => {
+                                idls.push(ProgramIdl {
+                                    program_id: *program_idls[idx].0,
+                                    idl: idl_json,
+                                });
+
+                            }
+                            Err(err) => {
+                                log::error!("failed to deserialize json idl(pid={},idl={}) {err:#?}", program_idls[idx].0, program_idls[idx].1);
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("failed to deserialize idl account {err:#?}")
+                    }
+                };
+            }
+        }
+        Ok(idls)
+    }
+}
+
+impl IdlAccount {
+    pub fn address(program_id: &Pubkey) -> anyhow::Result<Pubkey> {
+        let program_signer = Pubkey::find_program_address(&[], program_id).0;
+        Pubkey::create_with_seed(&program_signer, IdlAccount::seed(), program_id)
+            .with_context(|| "failed to get idl account")
+    }
+    pub fn seed() -> &'static str {
+        "anchor:idl"
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_idl() {
+        assert_eq!(
+            "C88XWfp26heEmDkmfSzeXP7Fd7GQJ2j9dDTUsyiZbUTa",
+            IdlAccount::address(
+                &"JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+                    .parse()
+                    .unwrap()
+            )
+            .unwrap()
+            .to_string()
+        );
     }
 }

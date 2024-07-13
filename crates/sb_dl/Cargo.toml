@@ -7,7 +7,8 @@ edition = "2021"
 [[bin]]
 name = "sb_dl"
 path = "src/main.rs"
-
+[dependencies.anchor-lang]
+version = "0.30"
 [dependencies.solana-client]
 version = "1.18"
 [dependencies.solana-sdk]
@@ -61,6 +62,12 @@ git = "https://github.com/rpcpool/yellowstone-grpc"
 rev = "87e1755b0d7a4e8101cb5feb6f30063aa91f343f"
 [dependencies.futures]
 version = "0.3"
+[dependencies.bincode]
+version = "1"
+[dependencies.borsh]
+version = "0.10"
+[dependencies.flate2]
+version = "1"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]

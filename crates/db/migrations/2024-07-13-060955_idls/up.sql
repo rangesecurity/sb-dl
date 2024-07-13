@@ -1,4 +1,3 @@
--- Your SQL goes here
 CREATE TABLE idls (
     id VARCHAR NOT NULL,
     begin_height INT8 NOT NULL,

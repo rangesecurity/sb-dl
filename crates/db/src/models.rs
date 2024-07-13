@@ -17,6 +17,16 @@ pub struct Idls {
     pub idl: serde_json::Value,
 }
 
+#[derive(Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable, Default, Insertable)]
+#[diesel(table_name = super::schema::programs)]
+pub struct Programs {
+    pub id: String,
+    pub last_deployed_slot: i64,
+    pub executable_account: String,
+    pub executable_data: Vec<u8>,
+}
+
+
 #[derive(Insertable)]
 #[diesel(table_name = super::schema::blocks)]
 pub struct NewBlock {
