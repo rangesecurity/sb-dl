@@ -68,6 +68,9 @@ version = "1"
 version = "0.10"
 [dependencies.flate2]
 version = "1"
+[dependencies.anchor-lang-idl]
+version = "0.1.1"
+features = ["convert"]
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]

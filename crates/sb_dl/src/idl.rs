@@ -1,18 +1,18 @@
 use std::{io::Read, time::Duration};
 
 use anyhow::Context;
+use flate2::read::GzDecoder;
+use flate2::read::ZlibDecoder;
+use flate2::write::{GzEncoder, ZlibEncoder};
+use flate2::Compression;
+use serde_json::json;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
     rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
 };
 use solana_sdk::pubkey::Pubkey;
-use flate2::read::GzDecoder;
-use flate2::read::ZlibDecoder;
-use flate2::write::{GzEncoder, ZlibEncoder};
-use flate2::Compression;
 const IDL_SEED: &str = "anchor:idl";
-
 
 #[derive(borsh::BorshDeserialize, borsh::BorshSerialize)]
 pub struct IdlAccount {
@@ -41,9 +41,7 @@ impl IdlIndexer {
     pub async fn get_idl_accounts(&self, programs: &[Pubkey]) -> anyhow::Result<Vec<ProgramIdl>> {
         let program_idls = programs
             .into_iter()
-            .filter_map(|(program)| {
-                Some((program, IdlAccount::address(&program).ok()?))
-            })
+            .filter_map(|(program)| Some((program, IdlAccount::address(&program).ok()?)))
             .collect::<Vec<_>>();
 
         let mut idls = Vec::with_capacity(program_idls.len());
@@ -66,8 +64,8 @@ impl IdlIndexer {
                 .value
                 .into_iter()
                 .enumerate()
-                .filter_map(|(idx, acct)| Some((idx, acct?))).collect::<Vec<_>>();
-            log::info!("found {} idls", idl_accounts.len());
+                .filter_map(|(idx, acct)| Some((idx, acct?)))
+                .collect::<Vec<_>>();
 
             for (idx, account) in idl_accounts {
                 if account.data.is_empty() {
@@ -83,22 +81,59 @@ impl IdlIndexer {
                         let compressed_bytes = &account.data[44..44 + compressed_len];
                         let mut z = ZlibDecoder::new(compressed_bytes);
                         let mut s = Vec::new();
-                        if let Err(err)  = z.read_to_end(&mut s) {
-                            log::error!("deflate stream read failed for pid({}) idl({}) {err:#?}", program_idl_chunk[idx].0, program_idl_chunk[idx].1);
+                        if let Err(err) = z.read_to_end(&mut s) {
+                            log::error!(
+                                "deflate stream read failed for pid({}) idl({}) {err:#?}",
+                                program_idl_chunk[idx].0,
+                                program_idl_chunk[idx].1
+                            );
                             continue;
                         }
-                        
-                        match serde_json::from_slice(&s[..]) {
-                            Ok(idl_json) => {
-                                total_valid_idls += 1;
-                                idls.push(ProgramIdl {
-                                    program_id: *program_idl_chunk[idx].0,
-                                    idl: idl_json,
-                                });
+                        match serde_json::from_slice::<serde_json::Value>(&s[..]) {
+                            Ok(mut idl_json) => {
+                                // handle idl conversion
+                                if let Some(obj) = idl_json.as_object_mut() {
+                                    // Insert or get the `metadata` object
+                                    let metadata =
+                                        obj.entry("metadata").or_insert_with(|| json!({}));
 
+                                    // Ensure `metadata` is an object
+                                    if let Some(metadata_obj) = metadata.as_object_mut() {
+                                        if !metadata_obj.contains_key("address") {
+                                            // Insert the `address` field into `metadata`
+                                            metadata_obj.insert(
+                                                "address".to_string(),
+                                                json!(program_idl_chunk[idx].0.to_string()),
+                                            );
+                                        }
+                                    }
+                                }
+                                if let Ok(idl_json) = serde_json::to_vec(&idl_json) {
+                                    match anchor_lang_idl::convert::convert_idl(&idl_json) {
+                                        Ok(idl) => match serde_json::to_value(&idl) {
+                                            Ok(idl_json) => {
+                                                total_valid_idls += 1;
+                                                idls.push(ProgramIdl {
+                                                    program_id: *program_idl_chunk[idx].0,
+                                                    idl: idl_json,
+                                                });
+                                            }
+                                            Err(err) => {
+                                                log::error!("failed to convert idl {err:#?}");
+                                            }
+                                        },
+                                        Err(err) => {
+                                            log::error!("failed to convert idl {err:#?}");
+                                        }
+                                    }
+                                }
                             }
                             Err(err) => {
-                                log::error!("failed to deserialize json idl(pid={},idl={}) {err:#?}", program_idl_chunk[idx].0, program_idl_chunk[idx].1);
+                                log::error!(
+                                    "failed to deserialize json idl(pid={},idl={}) {err:#?}",
+                                    program_idl_chunk[idx].0,
+                                    program_idl_chunk[idx].1
+                                );
                             }
                         }
                     }
@@ -108,7 +143,6 @@ impl IdlIndexer {
                 };
             }
         }
-        log::info!("total valid idls {}", total_valid_idls);
         Ok(idls)
     }
 }
