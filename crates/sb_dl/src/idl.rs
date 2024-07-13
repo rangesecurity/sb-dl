@@ -47,8 +47,9 @@ impl IdlIndexer {
             .collect::<Vec<_>>();
 
         let mut idls = Vec::with_capacity(program_idls.len());
+        let mut total_valid_idls = 0;
         for program_idl_chunk in program_idls.chunks(100) {
-            for (idx, account) in self
+            let idl_accounts = self
                 .rpc
                 .get_multiple_accounts_with_config(
                     &program_idl_chunk
@@ -65,9 +66,11 @@ impl IdlIndexer {
                 .value
                 .into_iter()
                 .enumerate()
-                .filter_map(|(idx, acct)| Some((idx, acct?)))
-            {
-                if account.data.is_empty() || account.data.len() < 8 {
+                .filter_map(|(idx, acct)| Some((idx, acct?))).collect::<Vec<_>>();
+            log::info!("found {} idls", idl_accounts.len());
+
+            for (idx, account) in idl_accounts {
+                if account.data.is_empty() {
                     continue;
                 }
                 match borsh::BorshDeserialize::deserialize(&mut &account.data[8..]) {
@@ -81,19 +84,21 @@ impl IdlIndexer {
                         let mut z = ZlibDecoder::new(compressed_bytes);
                         let mut s = Vec::new();
                         if let Err(err)  = z.read_to_end(&mut s) {
-                            log::error!("deflate stream read failed for pid({}) idl({}) {err:#?}", program_idls[idx].0, program_idls[idx].1)   ;
+                            log::error!("deflate stream read failed for pid({}) idl({}) {err:#?}", program_idl_chunk[idx].0, program_idl_chunk[idx].1);
+                            continue;
                         }
                         
                         match serde_json::from_slice(&s[..]) {
                             Ok(idl_json) => {
+                                total_valid_idls += 1;
                                 idls.push(ProgramIdl {
-                                    program_id: *program_idls[idx].0,
+                                    program_id: *program_idl_chunk[idx].0,
                                     idl: idl_json,
                                 });
 
                             }
                             Err(err) => {
-                                log::error!("failed to deserialize json idl(pid={},idl={}) {err:#?}", program_idls[idx].0, program_idls[idx].1);
+                                log::error!("failed to deserialize json idl(pid={},idl={}) {err:#?}", program_idl_chunk[idx].0, program_idl_chunk[idx].1);
                             }
                         }
                     }
@@ -103,6 +108,7 @@ impl IdlIndexer {
                 };
             }
         }
+        log::info!("total valid idls {}", total_valid_idls);
         Ok(idls)
     }
 }
