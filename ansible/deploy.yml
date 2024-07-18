@@ -29,6 +29,12 @@
         dest: "/etc/systemd/system/bigtable_downloader.service"
         mode: 0755
 
+    - name: Ship backfiller service to server
+      template:
+        src: "backfiller.service.j2"
+        dest: "/etc/systemd/system/backfiller.service"
+        mode: 0755
+
     - name: Configuring geyser stream service
       service:
         name: geyser_stream
@@ -39,6 +45,13 @@
     - name: Configuring bigtable downloader service
       service:
         name: bigtable_downloader
+        state: stopped
+        enabled: false
+        daemon_reload: true
+
+    - name: Configuring backfiller service
+      service:
+        name: backfiller
         state: restarted
         enabled: true
         daemon_reload: true
