@@ -82,6 +82,8 @@ async fn main() -> Result<()> {
                 .default_value("failed_blocks")
                 .required(false)
             ),
+            Command::new("index-idls"),
+            Command::new("index-programs"),
         ])
         .get_matches();
 
@@ -100,6 +102,8 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("import-failed-blocks", ifb)) => commands::download::import_failed_blocks(ifb, config_path).await,
         Some(("new-config", _)) => commands::config::new_config(config_path).await,
         Some(("geyser-stream", gs)) => commands::download::stream_geyser_blocks(gs, config_path).await,
+        Some(("index-idls", _)) => commands::idl_indexer::index_idls(config_path).await,
+        Some(("index-programs", _)) => commands::program_indexer::index_programs(config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }
