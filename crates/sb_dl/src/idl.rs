@@ -45,7 +45,6 @@ impl IdlIndexer {
             .collect::<Vec<_>>();
 
         let mut idls = Vec::with_capacity(program_idls.len());
-        let mut total_valid_idls = 0;
         for program_idl_chunk in program_idls.chunks(100) {
             let idl_accounts = self
                 .rpc
@@ -112,7 +111,6 @@ impl IdlIndexer {
                                     match anchor_lang_idl::convert::convert_idl(&idl_json) {
                                         Ok(idl) => match serde_json::to_value(&idl) {
                                             Ok(idl_json) => {
-                                                total_valid_idls += 1;
                                                 idls.push(ProgramIdl {
                                                     program_id: *program_idl_chunk[idx].0,
                                                     idl: idl_json,
