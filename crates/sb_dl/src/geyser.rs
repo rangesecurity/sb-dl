@@ -1,6 +1,6 @@
 use {
     crate::utils::process_block,
-    anyhow::{Context, Result},
+    anyhow::{anyhow, Context, Result},
     futures::{sink::SinkExt, stream::StreamExt},
     solana_transaction_status::UiConfirmedBlock,
     std::{any::Any, collections::HashMap, time::Duration},
@@ -102,9 +102,7 @@ pub async fn subscribe_blocks(
                 }
                 None => {}
             },
-            Err(err) => {
-                log::error!("failed to receive next message {err:#?}");
-            }
+            Err(err) => return Err(anyhow!("failed to receive next message {err:#?}")),
         }
     }
     Ok(())
