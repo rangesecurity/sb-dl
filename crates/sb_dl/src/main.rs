@@ -90,7 +90,14 @@ async fn main() -> Result<()> {
     let config_path = matches.get_one::<String>("config").unwrap();
     let log_level = matches.get_one::<String>("log-level").unwrap();
     let log_file = matches.get_one::<String>("log-file").unwrap();
-
+    // only preserve logs file the single most recent execution of the service
+    if let Ok(exists) = tokio::fs::try_exists(log_file).await {
+        if exists {
+            if let Err(err) = tokio::fs::rename(log_file, format!("{log_file}.old")).await {
+                log::error!("failed to rotate log file {err:#?}");
+            }
+        }
+    }
     init_log(log_level, log_file);
 
     process_matches(&matches, config_path).await
