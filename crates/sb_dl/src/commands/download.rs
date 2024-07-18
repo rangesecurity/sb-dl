@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use clap::ArgMatches;
 use db::migrations::run_migrations;
 use sb_dl::{
-    config::{self, Config}, geyser::{new_geyser_client, subscribe_blocks}, Downloader
+    config::{self, Config}, geyser::{new_geyser_client, subscribe_blocks}, bigtable::Downloader
 };
 use serde_json::Value;
 use solana_transaction_status::UiConfirmedBlock;
