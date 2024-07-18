@@ -210,7 +210,8 @@ pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> an
         }
     });
 
-    let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+    // optional value containing error message encountered during program execution
+    let (finished_tx, finished_rx) = tokio::sync::oneshot::channel::<Option<String>>();
 
     tokio::task::spawn(async move {
         log::info!("starting geyser stream. disable_minimization={no_minimization}");
@@ -219,10 +220,11 @@ pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> an
             blocks_tx,
             no_minimization
         ).await {
-            log::error!("geyser stream failed {err:#?}");
+            let _ = finished_tx.send(Some(format!("geyser stream failed {err:#?}")));
+        } else {
+            log::info!("geyser stream finished");
+            let _ = finished_tx.send(None);
         }
-        log::info!("geyser stream finished");
-        let _ = finished_tx.send(());
     });
 
     // handle exit routines
@@ -239,8 +241,15 @@ pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> an
             log::warn!("goodbye..");
             return Ok(());
         }
-        _ = finished_rx => {
-            return Ok(());
+        msg = finished_rx => {
+            match msg {
+                // geyser stream encountered error
+                Ok(Some(msg)) => return Err(anyhow!(msg)),
+                // geyser stream finished without error
+                Ok(None) => return Ok(()),
+                // underlying channel had an error
+                Err(err) => return Err(anyhow!(err))
+            }
         }
     }
 }
