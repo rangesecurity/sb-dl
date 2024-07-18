@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use diesel::prelude::*;
 
-use crate::models::{Idls, NewBlock, Programs};
+use crate::models::{Blocks, Idls, NewBlock, Programs};
 
 #[derive(Clone, Copy)]
 pub struct Client {}
@@ -17,7 +17,10 @@ impl Client {
     }
     pub fn indexed_program_ids(self, conn: &mut PgConnection) -> anyhow::Result<Vec<String>> {
         use crate::schema::programs::dsl::*;
-        let ids = programs.select(id).get_results(conn).with_context(|| "failed to select program ids")?;
+        let ids = programs
+            .select(id)
+            .get_results(conn)
+            .with_context(|| "failed to select program ids")?;
         Ok(ids)
     }
     pub fn insert_block(
@@ -27,13 +30,31 @@ impl Client {
         block_data: serde_json::Value,
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
-        NewBlock {
-            number: block_number,
-            data: block_data,
-        }
-        .insert_into(blocks)
-        .execute(conn)
-        .with_context(|| "failed to insert block")?;
+        conn.transaction::<_, anyhow::Error, _>(|conn| {
+            match blocks
+                .filter(number.eq(&block_number))
+                .limit(1)
+                .select(Blocks::as_select())
+                .load(conn)
+            {
+                Ok(block_infos) => {
+                    if block_infos.is_empty() {
+                        NewBlock {
+                            number: block_number,
+                            data: block_data,
+                        }
+                        .insert_into(blocks)
+                        .execute(conn)
+                        .with_context(|| "failed to insert block")?;
+                        Ok(())
+                    } else {
+                        // block already exists
+                        return Ok(());
+                    }
+                }
+                Err(err) => return Err(anyhow!("failed to check for pre-existing block {err:#?}")),
+            }
+        })?;
         Ok(())
     }
     pub fn insert_or_update_idl(
@@ -71,9 +92,12 @@ impl Client {
                         idl_info.begin_height = b_height;
                         idl_info.end_height = e_height;
                         idl_info.idl = program_idl;
-                        diesel::update(idls.filter(id.eq(&program_id)).filter(begin_height.eq(b_height)))
-                            .set(idl_info)
-                            .execute(conn)?;
+                        diesel::update(
+                            idls.filter(id.eq(&program_id))
+                                .filter(begin_height.eq(b_height)),
+                        )
+                        .set(idl_info)
+                        .execute(conn)?;
                     }
                 }
                 Err(err) => return Err(anyhow!("failed to query db {err:#?}")),

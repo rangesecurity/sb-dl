@@ -1,6 +1,6 @@
 use {diesel::prelude::*, uuid::Uuid};
 
-#[derive(Queryable, AsChangeset, Identifiable, Debug, Clone)]
+#[derive(Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable)]
 #[diesel(table_name = super::schema::blocks)]
 pub struct Blocks {
     pub id: Uuid,
