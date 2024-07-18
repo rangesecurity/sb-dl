@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use anyhow::anyhow;
 use clap::ArgMatches;
 use db::migrations::run_migrations;
 use sb_dl::{
@@ -175,10 +176,10 @@ pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> an
         while let Some((slot, block)) = blocks_rx.recv().await {
             match serde_json::to_value(block) {
                 Ok(mut block) => {
-                    if client
+                    if let Err(err) = client
                         .insert_block(&mut conn, slot as i64, block.clone())
-                        .is_err()
                     {
+                        log::error!("block persistence failed {err:#?}");
                         // block failed to be inserted into postgres
                         // so sanitize json and persist the block on disk
                         sanitize_value(&mut block);
