@@ -82,6 +82,23 @@ async fn main() -> Result<()> {
                 .default_value("failed_blocks")
                 .required(false)
             ),
+            Command::new("backfiller")
+            .about("block backfiller to covers gaps missed by geyser")
+            .arg(
+                Arg::new("no-minimization")
+                    .long("no-minimization")
+                    .help("if present, disable block minimization")
+                    .action(clap::ArgAction::SetTrue)
+                    .default_value("false")
+                    .required(false),
+            )
+            .arg(
+                Arg::new("failed-blocks")
+                .long("failed-blocks")
+                .help("directory to store failed blocks in")
+                .default_value("failed_blocks")
+                .required(false)
+            ),
             Command::new("index-idls"),
             Command::new("index-programs"),
         ])
@@ -109,6 +126,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("import-failed-blocks", ifb)) => commands::download::import_failed_blocks(ifb, config_path).await,
         Some(("new-config", _)) => commands::config::new_config(config_path).await,
         Some(("geyser-stream", gs)) => commands::download::stream_geyser_blocks(gs, config_path).await,
+        Some(("backfiller", bf)) => commands::download::recent_backfill(bf, config_path).await,
         Some(("index-idls", _)) => commands::idl_indexer::index_idls(config_path).await,
         Some(("index-programs", _)) => commands::program_indexer::index_programs(config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
