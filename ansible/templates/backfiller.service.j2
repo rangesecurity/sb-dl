@@ -1,0 +1,14 @@
+[Unit]
+Description=block backfiller service
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ app_root }}/sb_dl --config {{ app_root }}/config.yaml backfiller --failed-blocks {{ app_root }}/failed_blocks
+
+# Restart every >2 seconds to avoid StartLimitInterval failure
+RestartSec=30
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

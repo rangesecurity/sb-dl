@@ -4,4 +4,5 @@ pub mod geyser;
 pub mod idl;
 pub mod programs;
 pub mod bigtable;
+pub mod backfill;
 
