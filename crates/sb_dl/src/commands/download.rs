@@ -5,11 +5,14 @@ use {
     db::migrations::run_migrations,
     diesel::PgConnection,
     sb_dl::{
-        backfill::Backfiller, bigtable::Downloader, config::Config, geyser::{new_geyser_client, subscribe_blocks}
+        backfill::Backfiller,
+        bigtable::Downloader,
+        config::Config,
+        geyser::{new_geyser_client, subscribe_blocks},
     },
     solana_transaction_status::UiConfirmedBlock,
     std::collections::HashSet,
-    tokio::signal::unix::{signal, SignalKind},
+    tokio::signal::unix::{signal, Signal, SignalKind},
 };
 
 pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
@@ -52,9 +55,9 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
     let (blocks_tx, blocks_rx) =
         tokio::sync::mpsc::channel::<(u64, UiConfirmedBlock)>(limit.unwrap_or(1_000) as usize);
 
-    let mut sig_quit = signal(SignalKind::quit())?;
-    let mut sig_int = signal(SignalKind::interrupt())?;
-    let mut sig_term = signal(SignalKind::terminate())?;
+    let sig_quit = signal(SignalKind::quit())?;
+    let sig_int = signal(SignalKind::interrupt())?;
+    let sig_term = signal(SignalKind::terminate())?;
 
     // if we fail to connect to postgres, we should terminate the thread
     let conn = db::new_connection(&cfg.db_url)?;
@@ -73,31 +76,14 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
             .start(blocks_tx, already_indexed, start, limit, no_minimization)
             .await
         {
-            log::error!("downloader failed {err:#?}");
+            let _ = finished_tx.send(Some(format!("downloader failed {err:#?}")));
+        } else {
+            log::info!("finished downloading blocks");
+            let _ = finished_tx.send(None);
         }
-
-        log::info!("finished downloading blocks");
-        let _ = finished_tx.send(());
     });
 
-    // handle exit routines
-    tokio::select! {
-        _ = sig_quit.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_int.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_term.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = finished_rx => {
-            return Ok(());
-        }
-    }
+    handle_exit(sig_quit, sig_int, sig_term, finished_rx).await
 }
 
 pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
@@ -127,9 +113,9 @@ pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> an
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
     let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<(u64, UiConfirmedBlock)>(1000);
 
-    let mut sig_quit = signal(SignalKind::quit())?;
-    let mut sig_int = signal(SignalKind::interrupt())?;
-    let mut sig_term = signal(SignalKind::terminate())?;
+    let sig_quit = signal(SignalKind::quit())?;
+    let sig_int = signal(SignalKind::interrupt())?;
+    let sig_term = signal(SignalKind::terminate())?;
 
     // if we fail to connect to postgres, we should terminate the thread
     let conn = db::new_connection(&cfg.db_url)?;
@@ -152,31 +138,7 @@ pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> an
         }
     });
 
-    // handle exit routines
-    tokio::select! {
-        _ = sig_quit.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_int.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_term.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        msg = finished_rx => {
-            match msg {
-                // geyser stream encountered error
-                Ok(Some(msg)) => return Err(anyhow!(msg)),
-                // geyser stream finished without error
-                Ok(None) => return Ok(()),
-                // underlying channel had an error
-                Err(err) => return Err(anyhow!(err))
-            }
-        }
-    }
+    handle_exit(sig_quit, sig_int, sig_term, finished_rx).await
 }
 
 pub async fn recent_backfill(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
@@ -191,9 +153,9 @@ pub async fn recent_backfill(matches: &ArgMatches, config_path: &str) -> anyhow:
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
     let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<(u64, UiConfirmedBlock)>(1000);
 
-    let mut sig_quit = signal(SignalKind::quit())?;
-    let mut sig_int = signal(SignalKind::interrupt())?;
-    let mut sig_term = signal(SignalKind::terminate())?;
+    let sig_quit = signal(SignalKind::quit())?;
+    let sig_int = signal(SignalKind::interrupt())?;
+    let sig_term = signal(SignalKind::terminate())?;
 
     // if we fail to connect to postgres, we should terminate the thread
     let conn = db::new_connection(&cfg.db_url)?;
@@ -209,34 +171,15 @@ pub async fn recent_backfill(matches: &ArgMatches, config_path: &str) -> anyhow:
 
     tokio::task::spawn(async move {
         log::info!("starting backfiller. disable_minimization={no_minimization}");
-        if let Err(err) = backfiller.start(
-            blocks_tx,
-            no_minimization
-        ).await {
-            log::error!("backfiller failed {err:#?}");
+        if let Err(err) = backfiller.start(blocks_tx, no_minimization).await {
+            let _ = finished_tx.send(Some(format!("backfiller failed {err:#?}")));
+        } else {
+            log::info!("backfiller finished");
+            let _ = finished_tx.send(None);
         }
-        log::info!("backfiller finished");
-        let _ = finished_tx.send(());
     });
 
-    // handle exit routines
-    tokio::select! {
-        _ = sig_quit.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_int.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_term.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = finished_rx => {
-            return Ok(());
-        }
-    }
+    handle_exit(sig_quit, sig_int, sig_term, finished_rx).await
 }
 
 pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
@@ -253,23 +196,25 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
         let failed_blocks_dir = failed_blocks_dir.clone();
         tokio::task::spawn(async move {
             let client = db::client::Client {};
-    
+
             while let Some((slot, mut block)) = blocks_rx.recv().await {
                 sanitize_for_postgres(&mut block);
                 if let Err(err) = client.insert_block(&mut conn, slot as i64, block) {
                     log::error!("failed to insert block({slot}) {err:#?}");
                 } else {
                     log::info!("inserted block({slot})");
-                    if let Err(err) = tokio::fs::remove_file(format!("{failed_blocks_dir}/block_{slot}.json")).await {
+                    if let Err(err) =
+                        tokio::fs::remove_file(format!("{failed_blocks_dir}/block_{slot}.json"))
+                            .await
+                    {
                         log::error!("failed to remove persisted block({slot}) {err:#?}");
                     }
                 }
             }
-    
+
             let _ = finished_tx.send(());
         });
     }
-
 
     load_failed_blocks(&failed_blocks_dir, blocks_tx).await?;
 
@@ -326,6 +271,39 @@ async fn block_persistence_loop(
             }
             Err(err) => {
                 log::error!("failed to serialize block({slot}) {err:#?}");
+            }
+        }
+    }
+}
+
+async fn handle_exit(
+    mut sig_quit: Signal,
+    mut sig_int: Signal,
+    mut sig_term: Signal,
+    finished_rx: tokio::sync::oneshot::Receiver<Option<String>>,
+) -> anyhow::Result<()> {
+    // handle exit routines
+    tokio::select! {
+        _ = sig_quit.recv() => {
+            log::warn!("goodbye..");
+            return Ok(());
+        }
+        _ = sig_int.recv() => {
+            log::warn!("goodbye..");
+            return Ok(());
+        }
+        _ = sig_term.recv() => {
+            log::warn!("goodbye..");
+            return Ok(());
+        }
+        msg = finished_rx => {
+            match msg {
+                // service encountered error
+                Ok(Some(msg)) => return Err(anyhow!(msg)),
+                // service finished without error
+                Ok(None) => return Ok(()),
+                // underlying channel had an error
+                Err(err) => return Err(anyhow!(err))
             }
         }
     }
