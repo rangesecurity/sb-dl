@@ -30,3 +30,23 @@ pub async fn index_idls(
     }
     Ok(())
 }
+
+pub async fn manual_idl_import(
+    matches: &clap::ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let cfg = Config::load(config_path).await?;
+    let input = matches.get_one::<String>("input").unwrap();
+    let program_id = matches.get_one::<String>("program-id").unwrap();
+    let idl: serde_json::Value = serde_json::from_str(&tokio::fs::read_to_string(input).await?)?;
+    let mut conn = new_connection(&cfg.db_url)?;
+    let client = db::client::Client{};
+    client.insert_or_update_idl(
+        &mut conn,
+        program_id.to_string(),
+        0,
+        None,
+        idl
+    )?;
+    Ok(())
+}

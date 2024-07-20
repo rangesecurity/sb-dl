@@ -101,6 +101,19 @@ async fn main() -> Result<()> {
             ),
             Command::new("index-idls"),
             Command::new("index-programs"),
+            Command::new("manual-idl-import")
+            .about("manually import an idl into the database")
+            .long_about("useful for programs that publish anchor idls offchain")
+            .arg(
+                Arg::new("input")
+                .long("input")
+                .help("file containing the idl")
+            )
+            .arg(
+                Arg::new("program-id")
+                .long("program-id")
+                .help("program to associate this idl with")
+            )
         ])
         .get_matches();
 
@@ -129,6 +142,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("backfiller", bf)) => commands::download::recent_backfill(bf, config_path).await,
         Some(("index-idls", _)) => commands::idl_indexer::index_idls(config_path).await,
         Some(("index-programs", _)) => commands::program_indexer::index_programs(config_path).await,
+        Some(("manual-idl-import", mii)) => commands::idl_indexer::manual_idl_import(mii, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }
