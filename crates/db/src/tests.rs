@@ -16,6 +16,7 @@ fn test_blocks() {
             .insert_block(
                 &mut db_conn,
                 i,
+                i+1,
                 serde_json::json!({
                     "a": "b"
                 }),
@@ -26,8 +27,11 @@ fn test_blocks() {
         .indexed_blocks(&mut db_conn)
         .unwrap()
         .into_iter()
+        .filter_map(|block| {
+            Some(block?)
+        })
         .collect();
-    let expected_set = (1..100).into_iter().collect::<HashSet<i64>>();
+    let expected_set = (2..101).into_iter().collect::<HashSet<i64>>();
     assert_eq!(expected_set, indexed_blocks);
     drop(test_db);
 }
