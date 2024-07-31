@@ -16,6 +16,7 @@ impl Client {
             .with_context(|| "failed to select block numbers")?;
         Ok(numbers)
     }
+    /// Returns up to `limit` blocks which do not have the slot column set
     pub fn partial_blocks(self, conn: &mut PgConnection, limit: i64) -> anyhow::Result<Vec<Blocks>> {
         use crate::schema::blocks::dsl::*;
         Ok(blocks.filter(slot.is_null()).limit(limit).select(Blocks::as_select()).load(conn)
@@ -29,6 +30,7 @@ impl Client {
             .with_context(|| "failed to select program ids")?;
         Ok(ids)
     }
+    /// Inserts a new block
     pub fn insert_block(
         self,
         conn: &mut PgConnection,
@@ -66,6 +68,7 @@ impl Client {
         })?;
         Ok(())
     }
+    /// Used to update blocks which have missing slot information
     pub fn update_block_slot(
         self,
         conn: &mut PgConnection,
