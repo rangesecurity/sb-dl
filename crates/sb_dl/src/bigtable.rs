@@ -87,6 +87,7 @@ impl Downloader {
             match self.get_confirmed_block(slot).await {
                 Ok(block) => {
                     if let Some(block) = block {
+                        log::info!("block.block_height=({:?}), block.parent_slot=({}), slot=({slot})", block.block_height, block.parent_slot);
                         // post process the block to handle encoding and space minimization
                         match process_block(block, no_minimization) {
                             Ok(block) => {

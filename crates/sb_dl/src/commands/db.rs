@@ -30,15 +30,21 @@ pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyh
         } else {
             vec![]
         };
+        let new_block_number = if let Some(block_height) = block_data.block_height {
+            block_height
+        } else {
+            log::warn!("found missing block_height(slot={slot}, block.number={})", block.number);
+            continue;
+        };
         log::info!(
-            "block(slot={slot}, block.number={:?}, height={}, parent_slot={}, block_hash={}, sample_tx_hash={:?})",
+            "block(slot={slot}, new_block_number={new_block_number} block.height={:?}, block.number={}, parent_slot={}, block_hash={}, sample_tx_hash={:?})",
             block_data.block_height,
             block.number,
             block_data.parent_slot,
             block_data.blockhash,
             sample_tx_hash
         );
-        client.update_block_slot(&mut conn, block.number, slot as i64)?;
+        client.update_block_slot(&mut conn, block.number, new_block_number as i64, slot as i64)?;
     }
 
     Ok(())
