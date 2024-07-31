@@ -50,3 +50,8 @@ $> sb_dl geyser-stream --failed-blocks <failed_blocks_dir>
 ## storage-bigtable
 
 The `crates/storage-bigtable` folder is cloned from <https://github.com/solana-labs/solana> at commit `27eff8408b7223bb3c4ab70523f8a8dca3ca6645`. This is due to issues with cargo dependency resolution not allowing the crate to be imported from outside the `solana` repository, as well as the need to change function visibility modifiers.
+
+
+## idls
+
+The `idls` directory contains various IDLs that are not available on-chain. The naming format must be adhered to in order to facilitate bulk manual idl import. The file name of the idl needs to contains the program id, followed by `_X.json` where `X` can be any value.
