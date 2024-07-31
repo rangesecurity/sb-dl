@@ -223,7 +223,7 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
                         continue;
                     }
                 };
-                if let Err(err) = client.insert_block(&mut conn, block_number as i64, slot as i64, block) {
+                if let Err(err) = client.insert_block(&mut conn, block_number as i64, Some(slot as i64), block) {
                     log::error!("failed to insert block({slot}) {err:#?}");
                 } else {
                     log::info!("inserted block({slot})");
@@ -285,7 +285,7 @@ async fn block_persistence_loop(
             Ok(mut block) => {
 
                 if client
-                    .insert_block(&mut conn, block_number as i64, slot as i64, block.clone())
+                    .insert_block(&mut conn, block_number as i64, Some(slot as i64), block.clone())
                     .is_err()
                 {
                     log::warn!("block({slot}) persistence failed, retrying with sanitization");
@@ -294,7 +294,7 @@ async fn block_persistence_loop(
                     // replace escaped unicode points with empty string
                     sanitize_for_postgres(&mut block);
                     // try to reinsert block
-                    if let Err(err) = client.insert_block(&mut conn, block_number as i64, slot as i64, block.clone()) {
+                    if let Err(err) = client.insert_block(&mut conn, block_number as i64, Some(slot as i64), block.clone()) {
                         log::error!("block({slot}) retry failed {err:#?}");
                         match serde_json::to_string(&block) {
                             Ok(block_str) => {

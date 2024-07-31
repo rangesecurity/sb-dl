@@ -113,6 +113,14 @@ async fn main() -> Result<()> {
                 Arg::new("program-id")
                 .long("program-id")
                 .help("program to associate this idl with")
+            ),
+            Command::new("fill-missing-slots")
+            .about("fill missing slot information")
+            .arg(
+                Arg::new("limit")
+                .long("limit")
+                .help("number of blocks to fill at once")
+                .value_parser(clap::value_parser!(i64))
             )
         ])
         .get_matches();
@@ -143,6 +151,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("index-idls", _)) => commands::idl_indexer::index_idls(config_path).await,
         Some(("index-programs", _)) => commands::program_indexer::index_programs(config_path).await,
         Some(("manual-idl-import", mii)) => commands::idl_indexer::manual_idl_import(mii, config_path).await,
+        Some(("fill-missing-slots", fms)) => commands::db::fill_missing_slots(fms, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }
