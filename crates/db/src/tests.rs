@@ -16,13 +16,26 @@ fn test_blocks() {
             .insert_block(
                 &mut db_conn,
                 i,
-                i+1,
+                Some(i+1),
                 serde_json::json!({
                     "a": "b"
                 }),
             )
             .unwrap();
     }
+    for i in 200..300 {
+        client
+            .insert_block(
+                &mut db_conn,
+                i,
+                None,
+                serde_json::json!({
+                    "a": "b"
+                }),
+            )
+            .unwrap();
+    }
+    // check that setting slot by default worked
     let indexed_blocks: HashSet<i64> = client
         .indexed_blocks(&mut db_conn)
         .unwrap()
@@ -31,7 +44,30 @@ fn test_blocks() {
             Some(block?)
         })
         .collect();
-    let expected_set = (2..101).into_iter().collect::<HashSet<i64>>();
+    let mut expected_set = (2..101).into_iter().collect::<HashSet<i64>>();
     assert_eq!(expected_set, indexed_blocks);
+
+    // update slot number for blocks which are missing it
+    for i in 200..300 {
+        client
+            .update_block_slot(
+                &mut db_conn,
+                i,
+                i+1,
+            )
+            .unwrap();
+    }
+    let indexed_blocks: HashSet<i64> = client
+    .indexed_blocks(&mut db_conn)
+    .unwrap()
+    .into_iter()
+    .filter_map(|block| {
+        Some(block?)
+    })
+    .collect();
+    expected_set.extend((201..301).into_iter().collect::<HashSet<i64>>());
+    assert_eq!(expected_set, indexed_blocks);
+
+    // check that manual slot update worked
     drop(test_db);
 }

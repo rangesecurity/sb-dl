@@ -28,14 +28,14 @@ impl Client {
         self,
         conn: &mut PgConnection,
         block_number: i64,
-        slot_number: i64,
+        slot_number: Option<i64>,
         block_data: serde_json::Value,
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
         conn.transaction::<_, anyhow::Error, _>(|conn| {
             match blocks
                 .filter(number.eq(&block_number))
-                .filter(slot.eq(&Some(slot_number)))
+                .filter(slot.eq(&slot_number))
                 .limit(1)
                 .select(Blocks::as_select())
                 .load(conn)
@@ -45,7 +45,7 @@ impl Client {
                         NewBlock {
                             number: block_number,
                             data: block_data,
-                            slot: Some(slot_number)
+                            slot: slot_number
                         }
                         .insert_into(blocks)
                         .execute(conn)
@@ -58,6 +58,36 @@ impl Client {
                 }
                 Err(err) => return Err(anyhow!("failed to check for pre-existing block {err:#?}")),
             }
+        })?;
+        Ok(())
+    }
+    pub fn update_block_slot(
+        self,
+        conn: &mut PgConnection,
+        block_number: i64,
+        slot_number: i64
+    ) -> anyhow::Result<()> {
+        use crate::schema::blocks::dsl::*;
+        conn.transaction::<_, anyhow::Error, _>(|conn| {
+            match blocks.filter(number.eq(&block_number))
+            .filter(slot.is_null())
+            .select(Blocks::as_select())
+            .limit(1)
+            .load(conn) {
+                Ok(mut block_infos) => if block_infos.is_empty() {
+                    return Err(anyhow!("block({block_number})"))
+                } else {
+                    let mut block = std::mem::take(&mut block_infos[0]);
+                    block.slot = Some(slot_number);
+                    diesel::update(
+                        blocks.filter(number.eq(&block_number))
+                        .filter(slot.is_null())
+                    ).set(block)
+                    .execute(conn)?;
+                }
+                Err(err) => return Err(anyhow!("failed to check for block({block_number}) {err:#?}"))
+            }
+            Ok(())
         })?;
         Ok(())
     }
