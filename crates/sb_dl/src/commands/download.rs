@@ -10,7 +10,7 @@ use {
         config::Config,
         geyser::{new_geyser_client, subscribe_blocks},
     },
-    solana_transaction_status::UiConfirmedBlock,
+    solana_transaction_status::{EncodedTransaction, UiConfirmedBlock},
     std::collections::HashSet,
     tokio::signal::unix::{signal, Signal, SignalKind},
 };
@@ -230,9 +230,35 @@ async fn block_persistence_loop(
 ) {
     let client = db::client::Client {};
 
-    while let Some((slot, block)) = blocks_rx.recv().await {
+    while let Some((_, block)) = blocks_rx.recv().await {
+        // the block object we receive doesn't contain the slot number
+        //
+        // solana and solscan explorers use the slot number when indexing
+        // the block at which a transaction is included in
+        //
+        // because of this we need to derive the slot number by taking the parent_slot of a block
+        // and incrementing it by 1 to match the information displayed by existing explorers
+        
+        let slot = block.parent_slot + 1;
+        
+        // uncomment to display logs which can be used to verify the above statement
+        //let sample_tx = block.transactions.clone().and_then(|vec| vec.into_iter().next());
+        //let sample_tx_hash = if let Some(tx) = sample_tx {
+        //    if let EncodedTransaction::Json(tx)  = &tx.transaction {
+        //        tx.signatures.clone()
+        //    } else {
+        //        vec![]
+        //    }
+        //} else {
+        //    vec![]
+        //};
+        //log::info!(
+        //    "block(slot={slot}, height={block_height}, parent_slot={}, block_hash={}, sample_tx_hash={:?})", 
+        //    block.parent_slot, block.blockhash, sample_tx_hash
+        //);
         match serde_json::to_value(block) {
             Ok(mut block) => {
+
                 if client
                     .insert_block(&mut conn, slot as i64, block.clone())
                     .is_err()

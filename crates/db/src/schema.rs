@@ -7,6 +7,7 @@ diesel::table! {
         id -> Uuid,
         number -> Int8,
         data -> Jsonb,
+        slot -> Nullable<Int8>,
     }
 }
 

@@ -27,12 +27,14 @@ impl Client {
         self,
         conn: &mut PgConnection,
         block_number: i64,
+        slot_number: i64,
         block_data: serde_json::Value,
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
         conn.transaction::<_, anyhow::Error, _>(|conn| {
             match blocks
                 .filter(number.eq(&block_number))
+                .filter(slot.eq(&Some(slot_number)))
                 .limit(1)
                 .select(Blocks::as_select())
                 .load(conn)
@@ -42,6 +44,7 @@ impl Client {
                         NewBlock {
                             number: block_number,
                             data: block_data,
+                            slot: Some(slot_number)
                         }
                         .insert_into(blocks)
                         .execute(conn)
