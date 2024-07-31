@@ -31,7 +31,8 @@ pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyh
             vec![]
         };
         log::info!(
-            "block(slot={slot}, height={}, parent_slot={}, block_hash={}, sample_tx_hash={:?})",
+            "block(slot={slot}, block.number={:?}, height={}, parent_slot={}, block_hash={}, sample_tx_hash={:?})",
+            block_data.block_height,
             block.number,
             block_data.parent_slot,
             block_data.blockhash,
