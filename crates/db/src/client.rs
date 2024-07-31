@@ -7,10 +7,11 @@ use crate::models::{Blocks, Idls, NewBlock, Programs};
 pub struct Client {}
 
 impl Client {
-    pub fn indexed_blocks(self, conn: &mut PgConnection) -> anyhow::Result<Vec<i64>> {
+    /// Returns the slot number of blocks which we have indexed
+    pub fn indexed_blocks(self, conn: &mut PgConnection) -> anyhow::Result<Vec<Option<i64>>> {
         use crate::schema::blocks::dsl::*;
-        let numbers: Vec<i64> = blocks
-            .select(number)
+        let numbers: Vec<Option<i64>> = blocks
+            .select(slot)
             .get_results(conn)
             .with_context(|| "failed to select block numbers")?;
         Ok(numbers)
