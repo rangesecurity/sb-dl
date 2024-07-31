@@ -22,12 +22,12 @@ impl Client {
         use crate::schema::blocks::dsl::*;
         let mut found_blocks = 
             blocks
-            .filter(slot.is_null())
+            .filter(slot.is_null().or(number.nullable().eq(slot)))
             .limit(limit)
             .select(Blocks::as_select())
             .load(conn)
             .with_context(|| "failed to load blocks")?;
-        {
+        /*{
             let blks: Vec<Blocks> = blocks
             .filter(slot.is_not_null())
             .select(Blocks::as_select())
@@ -40,7 +40,7 @@ impl Client {
                     None
                 }
             }).collect::<Vec<_>>())
-        }
+        }*/
         Ok(found_blocks)
     }
     pub fn indexed_program_ids(self, conn: &mut PgConnection) -> anyhow::Result<Vec<String>> {
