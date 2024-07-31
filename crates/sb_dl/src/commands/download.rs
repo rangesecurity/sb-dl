@@ -161,7 +161,9 @@ pub async fn recent_backfill(matches: &ArgMatches, config_path: &str) -> anyhow:
     let sig_term = signal(SignalKind::terminate())?;
 
     // if we fail to connect to postgres, we should terminate the thread
-    let conn = db::new_connection(&cfg.db_url)?;
+    let mut conn = db::new_connection(&cfg.db_url)?;
+
+    run_migrations(&mut conn);
 
     // start the background persistence task
     tokio::task::spawn(
@@ -193,6 +195,8 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
 
     // if we fail to connect to postgres, we should terminate the thread
     let mut conn = db::new_connection(&cfg.db_url)?;
+    
+    run_migrations(&mut conn);
 
     let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
     {
