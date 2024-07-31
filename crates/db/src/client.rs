@@ -16,6 +16,11 @@ impl Client {
             .with_context(|| "failed to select block numbers")?;
         Ok(numbers)
     }
+    pub fn partial_blocks(self, conn: &mut PgConnection, limit: i64) -> anyhow::Result<Vec<Blocks>> {
+        use crate::schema::blocks::dsl::*;
+        Ok(blocks.filter(slot.is_null()).limit(limit).select(Blocks::as_select()).load(conn)
+        .with_context(|| "failed to load blocks")?)
+    }
     pub fn indexed_program_ids(self, conn: &mut PgConnection) -> anyhow::Result<Vec<String>> {
         use crate::schema::programs::dsl::*;
         let ids = programs
