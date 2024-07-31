@@ -20,28 +20,13 @@ impl Client {
     /// which have slot and number as the same
     pub fn partial_blocks(self, conn: &mut PgConnection, limit: i64) -> anyhow::Result<Vec<Blocks>> {
         use crate::schema::blocks::dsl::*;
-        let mut found_blocks = 
+        Ok(
             blocks
             .filter(slot.is_null().or(number.nullable().eq(slot)))
             .limit(limit)
             .select(Blocks::as_select())
             .load(conn)
-            .with_context(|| "failed to load blocks")?;
-        /*{
-            let blks: Vec<Blocks> = blocks
-            .filter(slot.is_not_null())
-            .select(Blocks::as_select())
-            .load(conn)
-            .with_context(|| "failed to select non null slots")?;
-            found_blocks.append(&mut blks.into_iter().filter_map(|blk| {
-                if blk.slot? == blk.number {
-                    Some(blk)
-                } else {
-                    None
-                }
-            }).collect::<Vec<_>>())
-        }*/
-        Ok(found_blocks)
+            .with_context(|| "failed to load blocks")?)
     }
     pub fn indexed_program_ids(self, conn: &mut PgConnection) -> anyhow::Result<Vec<String>> {
         use crate::schema::programs::dsl::*;
