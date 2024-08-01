@@ -43,8 +43,8 @@ pub fn decode_instruction(
         .eq("11111111111111111111111111111111")
     {
         Ok(Some(DecodedInstruction::SystemInstruction(
-            system::parse_system_instruction(partially_decoded)
-                .with_context(|| "failed to parse system instruction")?,
+            system::decode_system_instruction(partially_decoded)
+                .with_context(|| "failed to decode system instruction")?,
         )))
     } else if parsed_instruction
         .program_id
@@ -54,8 +54,8 @@ pub fn decode_instruction(
             .eq("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
     {
         Ok(Some(DecodedInstruction::TokenInstruction(
-            token::parse_token_instruction(partially_decoded)
-                .with_context(|| "failed to parse token instruction")?,
+            token::decode_token_instruction(partially_decoded)
+                .with_context(|| "failed to decode token instruction")?,
         )))
     } else {
         Ok(None)
@@ -94,7 +94,7 @@ pub mod system {
         pub owner: String,
     }
 
-    pub fn parse_system_instruction(
+    pub fn decode_system_instruction(
         partially_decoded: PartiallyDecodedInstruction,
     ) -> anyhow::Result<SystemInstructions> {
         let ix_type = &partially_decoded.type_;
@@ -177,7 +177,7 @@ pub mod token {
         pub token_amount: UiTokenAmount,
     }
 
-    pub fn parse_token_instruction(
+    pub fn decode_token_instruction(
         partially_decoded: PartiallyDecodedInstruction,
     ) -> anyhow::Result<TokenInstructions> {
         let ix_type = &partially_decoded.type_;
