@@ -29,11 +29,12 @@ impl Backfiller {
                 .await
                 .with_context(|| "failed to get block height")?;
             // backfill 300 most recent blocks, over estimating blocks per second by 2x
-            for block_height in (current_height - 300..current_height) {
+            for slot_height in (current_height - 300..current_height) {
                 match self
                     .rpc
                     .get_block_with_config(
-                        block_height,
+                        // this is actually the slot
+                        slot_height,
                         RpcBlockConfig {
                             encoding: Some(UiTransactionEncoding::JsonParsed),
                             transaction_details: Some(TransactionDetails::Full),
@@ -48,12 +49,18 @@ impl Backfiller {
                         if no_minimization == false {
                             block = filter_vote_transactions(block);
                         }
+                        let block_height = if let Some(block_height) = block.block_height {
+                            block_height
+                        } else {
+                            log::warn!("block height is None for block({slot_height}");
+                            continue;
+                        };
                         if let Err(err) = blocks_tx.send((block_height, block)).await {
                             log::error!("failed to notify block {err:#?}");
                         }
                     }
                     Err(err) => {
-                        log::error!("failed to retrieve block({block_height}) {err:#?}");
+                        log::error!("failed to retrieve block({slot_height}) {err:#?}");
                     }
                 }
             }
