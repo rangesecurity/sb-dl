@@ -42,10 +42,10 @@ pub fn decode_instruction(
         .program_id
         .eq("11111111111111111111111111111111")
     {
-        Ok(Some(DecodedInstruction::SystemInstruction(
-            system::decode_system_instruction(partially_decoded)
-                .with_context(|| "failed to decode system instruction")?,
-        )))
+        match system::decode_system_instruction(partially_decoded).with_context(|| "failed to decode system instruction")? {
+            Some(decoded) => return Ok(Some(DecodedInstruction::SystemInstruction(decoded))),
+            None => return Ok(None)
+        }
     } else if parsed_instruction
         .program_id
         .eq("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
@@ -53,10 +53,11 @@ pub fn decode_instruction(
             .program_id
             .eq("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
     {
-        Ok(Some(DecodedInstruction::TokenInstruction(
-            token::decode_token_instruction(partially_decoded)
-                .with_context(|| "failed to decode token instruction")?,
-        )))
+        match token::decode_token_instruction(partially_decoded)
+                .with_context(|| "failed to decode token instruction")? {
+                    Some(decoded) => return Ok(Some(DecodedInstruction::TokenInstruction(decoded))),
+                    None => return Ok(None)
+                }
     } else {
         Ok(None)
     }
@@ -69,12 +70,14 @@ pub mod system {
     lazy_static! {
         static ref TRANSFER: String = "transfer".to_string();
         static ref CREATE_ACCOUNT: String = "createAccount".to_string();
+        static ref CREATE_ACCOUNT_WITH_SEED: String = "createAccountWithSeed".to_string();
     }
 
     #[derive(Clone, Debug)]
     pub enum SystemInstructions {
         Transfer(Transfer),
         CreateAccount(CreateAccount),
+        CreateAccountWithSeed(CreateAccountWithSeed)
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -93,21 +96,41 @@ pub mod system {
         pub space: u64,
         pub owner: String,
     }
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    pub struct CreateAccountWithSeed {
+        pub source: String,
+        #[serde(alias = "newAccount")]
+        pub new_account: String,
+        pub base: String,
+        pub seed: String,
+        pub lamports: u64,
+        pub space: u64,
+        pub owner: String,
+    }
 
+    /// # Returns
+    /// 
+    /// Err is decoding failed
+    /// Ok(None) if this isnt a system instruction we are interested in decoding
+    /// Ok(Some) if this is a system instruction we are interested in decoding
     pub fn decode_system_instruction(
         partially_decoded: PartiallyDecodedInstruction,
-    ) -> anyhow::Result<SystemInstructions> {
+    ) -> anyhow::Result<Option<SystemInstructions>> {
         let ix_type = &partially_decoded.type_;
         if TRANSFER.eq(ix_type) {
-            Ok(SystemInstructions::Transfer(serde_json::from_value(
+            Ok(Some(SystemInstructions::Transfer(serde_json::from_value(
                 partially_decoded.info,
-            )?))
+            )?)))
         } else if CREATE_ACCOUNT.eq(ix_type) {
-            Ok(SystemInstructions::CreateAccount(serde_json::from_value(
+            Ok(Some(SystemInstructions::CreateAccount(serde_json::from_value(
                 partially_decoded.info,
-            )?))
+            )?)))
+        } else if CREATE_ACCOUNT_WITH_SEED.eq(ix_type) {
+            Ok(Some(SystemInstructions::CreateAccountWithSeed(serde_json::from_value(
+                partially_decoded.info
+            )?)))
         } else {
-            return Err(anyhow!("unrecognized instruction {ix_type}"));
+            return Ok(None)
         }
     }
 }
@@ -176,37 +199,41 @@ pub mod token {
         #[serde(alias = "tokenAmount")]
         pub token_amount: UiTokenAmount,
     }
-
+    /// # Returns
+    /// 
+    /// Err is decoding failed
+    /// Ok(None) if this isnt a token instruction we are interested in decoding
+    /// Ok(Some) if this is a token instruction we are interested in decoding
     pub fn decode_token_instruction(
         partially_decoded: PartiallyDecodedInstruction,
-    ) -> anyhow::Result<TokenInstructions> {
+    ) -> anyhow::Result<Option<TokenInstructions>> {
         let ix_type = &partially_decoded.type_;
         if TRANSFER.eq(ix_type) {
-            Ok(TokenInstructions::Transfer(serde_json::from_value(
+            Ok(Some(TokenInstructions::Transfer(serde_json::from_value(
                 partially_decoded.info,
-            )?))
+            )?)))
         } else if MINT_TO.eq(ix_type) {
-            Ok(TokenInstructions::MintTo(serde_json::from_value(
+            Ok(Some(TokenInstructions::MintTo(serde_json::from_value(
                 partially_decoded.info,
-            )?))
+            )?)))
         } else if BURN.eq(ix_type) {
-            Ok(TokenInstructions::Burn(serde_json::from_value(
+            Ok(Some(TokenInstructions::Burn(serde_json::from_value(
                 partially_decoded.info,
-            )?))
+            )?)))
         } else if TRANSFER_CHECKED.eq(ix_type) {
-            Ok(TokenInstructions::TransferChecked(serde_json::from_value(
+            Ok(Some(TokenInstructions::TransferChecked(serde_json::from_value(
                 partially_decoded.info,
-            )?))
+            )?)))
         } else if MINT_TO_CHECKED.eq(ix_type) {
-            Ok(TokenInstructions::MintToChecked(serde_json::from_value(
+            Ok(Some(TokenInstructions::MintToChecked(serde_json::from_value(
                 partially_decoded.info,
-            )?))
+            )?)))
         } else if BURN_CHECKED.eq(ix_type) {
-            Ok(TokenInstructions::BurnChecked(serde_json::from_value(
+            Ok(Some(TokenInstructions::BurnChecked(serde_json::from_value(
                 partially_decoded.info,
-            )?))
+            )?)))
         } else {
-            return Err(anyhow!("unrecognized instruction {ix_type}"));
+            return Ok(None)
         }
     }
 }

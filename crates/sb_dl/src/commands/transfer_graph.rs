@@ -70,12 +70,19 @@ pub async fn create_transfer_graph(
     // instructions which can transfer funds:
     // 11111111111111111111111111111111::transfer
     // 11111111111111111111111111111111:createAccount
+    // 11111111111111111111111111111111:createAccountWithSeed (todo)
+    // 11111111111111111111111111111111::transferWithSeed (todo)
+    // 11111111111111111111111111111111::withdrawNonceAccount (todo)
+    //
     // TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::transfer
     // TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::mintTo
     // TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::burn
     // TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::transferChecked
     // TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::mintToChecked
     // TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::burnChecked
+    // TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::closeAccount (todo)
+    //  ^--- todo: this causes lamports to be sent back to the destination
+    //  ^--- todo: we need tof igure out a way to calculate this
 
     // TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::transfer
     // TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::mintTo
@@ -83,6 +90,9 @@ pub async fn create_transfer_graph(
     // TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::transferChecked
     // TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::mintToChecked
     // TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::burnChecked
+    // TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::closeAccount (todo)
+    //  ^--- todo: this causes lamports to be sent back to the destination
+    //  ^--- todo: we need tof igure out a way to calculate this
 
     // TODO: handle token extensions
 
