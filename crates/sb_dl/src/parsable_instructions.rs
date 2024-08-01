@@ -15,7 +15,7 @@ pub struct PartiallyDecodedInstruction {
     pub type_: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum DecodedInstruction {
     SystemInstruction(SystemInstructions),
     TokenInstruction(TokenInstructions),
@@ -71,20 +71,20 @@ pub mod system {
         static ref CREATE_ACCOUNT: String = "createAccount".to_string();
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub enum SystemInstructions {
         Transfer(Transfer),
         CreateAccount(CreateAccount),
     }
 
-    #[derive(Serialize, Deserialize, Clone)]
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct Transfer {
         pub source: String,
         pub destination: String,
         pub lamports: u64,
     }
 
-    #[derive(Serialize, Deserialize, Clone)]
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct CreateAccount {
         pub source: String,
         #[serde(alias = "newAccount")]
@@ -126,7 +126,7 @@ pub mod token {
         static ref BURN_CHECKED: String = "burnChecked".to_string();
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub enum TokenInstructions {
         Transfer(Transfer),
         MintTo(MintTo),
@@ -136,25 +136,25 @@ pub mod token {
         BurnChecked(BurnChecked),
     }
 
-    #[derive(Serialize, Deserialize, Clone)]
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct Transfer {
         pub source: String,
         pub destination: String,
         pub amount: String,
     }
-    #[derive(Serialize, Deserialize, Clone)]
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct MintTo {
         pub mint: String,
         pub account: String,
         pub amount: u64,
     }
-    #[derive(Serialize, Deserialize, Clone)]
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct Burn {
         pub account: String,
         pub mint: String,
         pub amount: u64,
     }
-    #[derive(Serialize, Deserialize, Clone)]
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct TransferChecked {
         pub source: String,
         pub mint: String,
@@ -162,14 +162,14 @@ pub mod token {
         #[serde(alias = "tokenAmount")]
         pub token_amount: UiTokenAmount,
     }
-    #[derive(Serialize, Deserialize, Clone)]
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct MintToChecked {
         pub mint: String,
         pub account: String,
         #[serde(alias = "tokenAmount")]
         pub token_amount: UiTokenAmount,
     }
-    #[derive(Serialize, Deserialize, Clone)]
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct BurnChecked {
         pub account: String,
         pub mint: String,

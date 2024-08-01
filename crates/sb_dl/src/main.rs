@@ -121,6 +121,19 @@ async fn main() -> Result<()> {
                 .long("limit")
                 .help("number of blocks to fill at once")
                 .value_parser(clap::value_parser!(i64))
+            ),
+            Command::new("create-transfer-graph")
+            .about("generate transfer graphs")
+            .arg(
+                Arg::new("slot-number")
+                .long("slot-number")
+                .help("slot number to fetch tx from")
+                .value_parser(clap::value_parser!(i64))
+            )
+            .arg(
+                Arg::new("tx-hash")
+                .long("tx-hash")
+                .help("tx to generate graph for")
             )
         ])
         .get_matches();
@@ -152,6 +165,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("index-programs", _)) => commands::program_indexer::index_programs(config_path).await,
         Some(("manual-idl-import", mii)) => commands::idl_indexer::manual_idl_import(mii, config_path).await,
         Some(("fill-missing-slots", fms)) => commands::db::fill_missing_slots(fms, config_path).await,
+        Some(("create-transfer-graph", ctg)) => commands::transfer_graph::create_transfer_graph(ctg, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }
