@@ -1,11 +1,12 @@
 use {diesel::prelude::*, uuid::Uuid};
 
-#[derive(Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable)]
+#[derive(Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable, Default, PartialEq, Eq)]
 #[diesel(table_name = super::schema::blocks)]
 pub struct Blocks {
     pub id: Uuid,
     pub number: i64,
     pub data: serde_json::Value,
+    pub slot: Option<i64>,
 }
 
 #[derive(Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable, Default, Insertable)]
@@ -32,6 +33,7 @@ pub struct Programs {
 pub struct NewBlock {
     pub number: i64,
     pub data: serde_json::Value,
+    pub slot: Option<i64>,
 }
 
 

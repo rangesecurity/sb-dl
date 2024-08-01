@@ -10,11 +10,13 @@ use {
         config::Config,
         geyser::{new_geyser_client, subscribe_blocks},
     },
-    solana_transaction_status::UiConfirmedBlock,
+    solana_transaction_status::{EncodedTransaction, UiConfirmedBlock},
     std::collections::HashSet,
     tokio::signal::unix::{signal, Signal, SignalKind},
 };
 
+
+/// Starts the big table historical block downloader
 pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;
     let start = matches.get_one::<u64>("start").cloned();
@@ -42,7 +44,7 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
             .indexed_blocks(&mut conn)
             .unwrap_or_default()
             .into_iter()
-            .map(|block| block as u64)
+            .filter_map(|block| Some(block? as u64))
             .collect()
     };
 
@@ -86,6 +88,7 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
     handle_exit(sig_quit, sig_int, sig_term, finished_rx).await
 }
 
+/// Starts the geyser stream block downloader
 pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
@@ -158,7 +161,9 @@ pub async fn recent_backfill(matches: &ArgMatches, config_path: &str) -> anyhow:
     let sig_term = signal(SignalKind::terminate())?;
 
     // if we fail to connect to postgres, we should terminate the thread
-    let conn = db::new_connection(&cfg.db_url)?;
+    let mut conn = db::new_connection(&cfg.db_url)?;
+
+    run_migrations(&mut conn);
 
     // start the background persistence task
     tokio::task::spawn(
@@ -190,16 +195,39 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
 
     // if we fail to connect to postgres, we should terminate the thread
     let mut conn = db::new_connection(&cfg.db_url)?;
+    
+    run_migrations(&mut conn);
 
     let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
     {
         let failed_blocks_dir = failed_blocks_dir.clone();
         tokio::task::spawn(async move {
             let client = db::client::Client {};
-
-            while let Some((slot, mut block)) = blocks_rx.recv().await {
+            while let Some((block_number, mut block)) = blocks_rx.recv().await {
                 sanitize_for_postgres(&mut block);
-                if let Err(err) = client.insert_block(&mut conn, slot as i64, block) {
+
+                // this is a bit clunky, however in order to get the correct slot number
+                // we first need to deserialize the block into a UiConfirmedBlock object
+                // calculate the slot number, then serialize the block again
+
+                let block: UiConfirmedBlock = match serde_json::from_value(block) {
+                    Ok(block) => block,
+                    Err(err) => {
+                        log::error!("failed to deserialize block({block_number}) {err:#?}");
+                        continue;
+                    }
+                };
+
+                let slot = block.parent_slot + 1;
+
+                let block = match serde_json::to_value(block) {
+                    Ok(block) => block,
+                    Err(err) => {
+                        log::error!("failed to serialize block{block_number}) {err:#?}");
+                        continue;
+                    }
+                };
+                if let Err(err) = client.insert_block(&mut conn, block_number as i64, Some(slot as i64), block) {
                     log::error!("failed to insert block({slot}) {err:#?}");
                 } else {
                     log::info!("inserted block({slot})");
@@ -223,6 +251,7 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
     Ok(())
 }
 
+// shared logic responsible for persisting blocks to the database
 async fn block_persistence_loop(
     mut conn: PgConnection,
     failed_blocks_dir: String,
@@ -230,11 +259,37 @@ async fn block_persistence_loop(
 ) {
     let client = db::client::Client {};
 
-    while let Some((slot, block)) = blocks_rx.recv().await {
+    while let Some((block_number, block)) = blocks_rx.recv().await {
+        // the block object we receive doesn't contain the slot number
+        //
+        // solana and solscan explorers use the slot number when indexing
+        // the block at which a transaction is included in
+        //
+        // because of this we need to derive the slot number by taking the parent_slot of a block
+        // and incrementing it by 1 to match the information displayed by existing explorers
+        
+        let slot = block.parent_slot + 1;
+        
+        // uncomment to display logs which can be used to verify the above statement
+        //let sample_tx = block.transactions.clone().and_then(|vec| vec.into_iter().next());
+        //let sample_tx_hash = if let Some(tx) = sample_tx {
+        //    if let EncodedTransaction::Json(tx)  = &tx.transaction {
+        //        tx.signatures.clone()
+        //    } else {
+        //        vec![]
+        //    }
+        //} else {
+        //    vec![]
+        //};
+        //log::info!(
+        //    "block(slot={slot}, height={block_number}, parent_slot={}, block_hash={}, sample_tx_hash={:?})", 
+        //    block.parent_slot, block.blockhash, sample_tx_hash
+        //);
         match serde_json::to_value(block) {
             Ok(mut block) => {
+
                 if client
-                    .insert_block(&mut conn, slot as i64, block.clone())
+                    .insert_block(&mut conn, block_number as i64, Some(slot as i64), block.clone())
                     .is_err()
                 {
                     log::warn!("block({slot}) persistence failed, retrying with sanitization");
@@ -243,7 +298,7 @@ async fn block_persistence_loop(
                     // replace escaped unicode points with empty string
                     sanitize_for_postgres(&mut block);
                     // try to reinsert block
-                    if let Err(err) = client.insert_block(&mut conn, slot as i64, block.clone()) {
+                    if let Err(err) = client.insert_block(&mut conn, block_number as i64, Some(slot as i64), block.clone()) {
                         log::error!("block({slot}) retry failed {err:#?}");
                         match serde_json::to_string(&block) {
                             Ok(block_str) => {

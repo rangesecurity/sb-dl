@@ -6,14 +6,36 @@ use crate::models::{Blocks, Idls, NewBlock, Programs};
 #[derive(Clone, Copy)]
 pub struct Client {}
 
+#[derive(Clone, Copy)]
+pub enum BlockFilter {
+    Slot(i64),
+    Number(i64),
+}
+
 impl Client {
-    pub fn indexed_blocks(self, conn: &mut PgConnection) -> anyhow::Result<Vec<i64>> {
+    /// Returns the slot number of blocks which we have indexed
+    pub fn indexed_blocks(self, conn: &mut PgConnection) -> anyhow::Result<Vec<Option<i64>>> {
         use crate::schema::blocks::dsl::*;
-        let numbers: Vec<i64> = blocks
-            .select(number)
+        let numbers: Vec<Option<i64>> = blocks
+            .select(slot)
             .get_results(conn)
             .with_context(|| "failed to select block numbers")?;
         Ok(numbers)
+    }
+    /// Returns up to `limit` blocks which do not have the slot column set or all blocks
+    /// which have slot and number as the same
+    pub fn partial_blocks(
+        self,
+        conn: &mut PgConnection,
+        limit: i64,
+    ) -> anyhow::Result<Vec<Blocks>> {
+        use crate::schema::blocks::dsl::*;
+        Ok(blocks
+            .filter(slot.is_null().or(number.nullable().eq(slot)))
+            .limit(limit)
+            .select(Blocks::as_select())
+            .load(conn)
+            .with_context(|| "failed to load blocks")?)
     }
     pub fn indexed_program_ids(self, conn: &mut PgConnection) -> anyhow::Result<Vec<String>> {
         use crate::schema::programs::dsl::*;
@@ -23,16 +45,37 @@ impl Client {
             .with_context(|| "failed to select program ids")?;
         Ok(ids)
     }
+    /// Select a block matching against the block number or slot number
+    pub fn select_block(
+        self,
+        conn: &mut PgConnection,
+        filter: BlockFilter,
+    ) -> anyhow::Result<Vec<Blocks>> {
+        use crate::schema::blocks::dsl::*;
+        match filter {
+            BlockFilter::Number(blk_num) => Ok(blocks
+                .filter(number.eq(blk_num))
+                .select(Blocks::as_select())
+                .load(conn)?),
+            BlockFilter::Slot(slot_num) => Ok(blocks
+                .filter(slot.eq(Some(slot_num)))
+                .select(Blocks::as_select())
+                .load(conn)?),
+        }
+    }
+    /// Inserts a new block
     pub fn insert_block(
         self,
         conn: &mut PgConnection,
         block_number: i64,
+        slot_number: Option<i64>,
         block_data: serde_json::Value,
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
         conn.transaction::<_, anyhow::Error, _>(|conn| {
             match blocks
                 .filter(number.eq(&block_number))
+                .filter(slot.eq(&slot_number))
                 .limit(1)
                 .select(Blocks::as_select())
                 .load(conn)
@@ -42,6 +85,7 @@ impl Client {
                         NewBlock {
                             number: block_number,
                             data: block_data,
+                            slot: slot_number,
                         }
                         .insert_into(blocks)
                         .execute(conn)
@@ -54,6 +98,50 @@ impl Client {
                 }
                 Err(err) => return Err(anyhow!("failed to check for pre-existing block {err:#?}")),
             }
+        })?;
+        Ok(())
+    }
+    /// Used to update blocks which have missing slot information
+    pub fn update_block_slot(
+        self,
+        conn: &mut PgConnection,
+        old_block_number: i64,
+        new_block_number: i64,
+        slot_number: i64,
+    ) -> anyhow::Result<()> {
+        use crate::schema::blocks::dsl::*;
+        conn.transaction::<_, anyhow::Error, _>(|conn| {
+            match blocks
+                .filter(
+                    number
+                        .eq(&old_block_number)
+                        .and(slot.is_null())
+                        .or(number.eq(slot_number).and(slot.eq(slot_number))),
+                )
+                .select(Blocks::as_select())
+                .limit(1)
+                .load(conn)
+            {
+                Ok(mut block_infos) => {
+                    if block_infos.is_empty() {
+                        return Err(anyhow!("block({old_block_number})"));
+                    } else {
+                        let mut block = std::mem::take(&mut block_infos[0]);
+                        block.slot = Some(slot_number);
+                        block.number = new_block_number;
+
+                        diesel::update(blocks.filter(id.eq(block.id)))
+                            .set(block)
+                            .execute(conn)?;
+                    }
+                }
+                Err(err) => {
+                    return Err(anyhow!(
+                        "failed to check for block({old_block_number}) {err:#?}"
+                    ))
+                }
+            }
+            Ok(())
         })?;
         Ok(())
     }
