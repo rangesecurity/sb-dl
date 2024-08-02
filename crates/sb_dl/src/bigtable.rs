@@ -87,11 +87,16 @@ impl Downloader {
             match self.get_confirmed_block(slot).await {
                 Ok(block) => {
                     if let Some(block) = block {
-                        log::info!("block.block_height=({:?}), block.parent_slot=({}), slot=({slot})", block.block_height, block.parent_slot);
+                        let block_height = if let Some(block_height) = block.block_height {
+                            block_height
+                        } else {
+                            log::warn!("block({slot}) height is none");
+                            continue;
+                        };
                         // post process the block to handle encoding and space minimization
                         match process_block(block, no_minimization) {
                             Ok(block) => {
-                                if let Err(err) = blocks_tx.send((slot, block)).await {
+                                if let Err(err) = blocks_tx.send((block_height, block)).await {
                                     log::error!("failed to send block({slot}) {err:#?}");
                                 }
                             }
