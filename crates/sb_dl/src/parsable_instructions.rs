@@ -164,6 +164,9 @@ pub mod token {
         pub source: String,
         pub destination: String,
         pub amount: String,
+        // this information is missing from the instruction
+        // however we can add it after decoding
+        pub mint: Option<String>,
     }
     #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct MintTo {
