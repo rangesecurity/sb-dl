@@ -11,14 +11,12 @@ use solana_transaction_status::{
     UiInstruction, UiMessage, UiParsedInstruction, UiTransactionTokenBalance,
 };
 
-
 #[derive(Clone)]
 pub struct TokenOwnerInfo {
     pub mint: String,
     pub owner: String,
     pub account_index: u8,
 }
-
 
 pub async fn create_transfer_graph(
     matches: &clap::ArgMatches,
@@ -88,7 +86,7 @@ pub async fn create_transfer_graph(
                     // https://github.com/solana-labs/solana/pull/22146
                     owner: Into::<Option<String>>::into(balance.owner.clone()).unwrap_or_default(),
                     // the account index numbering follows array element number
-                    // so account_index 3, would be account_keys[3], 
+                    // so account_index 3, would be account_keys[3],
                     // this is different than instruction numbering where
                     // instruction_index 3 would be instructions[2]
                     account_index: balance.account_index,
@@ -96,12 +94,14 @@ pub async fn create_transfer_graph(
             );
         });
 
-    let inner_instructions =
-        if let OptionSerializer::Some(inner_ixs) = tx_meta.inner_instructions {
-            inner_ixs
-        } else {
-            vec![]
-        };
+    // get the inner instructions
+    let inner_instructions = if let OptionSerializer::Some(inner_ixs) = tx_meta.inner_instructions {
+        inner_ixs
+    } else {
+        vec![]
+    };
+
+    // get the account keys involved in the tx, as well as the outer instructions
     let (account_keys, outer_instructions) = if let EncodedTransaction::Json(tx) = tx.transaction {
         match tx.message {
             UiMessage::Parsed(parsed_msg) => (parsed_msg.account_keys, parsed_msg.instructions),
@@ -160,19 +160,25 @@ pub async fn create_transfer_graph(
             let UiInstruction::Parsed(ui_ix) = inner_ix else {
                 continue;
             };
+
             let UiParsedInstruction::Parsed(parsed_ix) = ui_ix else {
                 continue;
             };
+
             let mut decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
                 Ok(Some(decoded)) => decoded,
                 Ok(None) => continue, // unrecognized instruction
                 Err(err) => return Err(anyhow!("failed to decode instruction {err:#?}")),
             };
-            if let DecodedInstruction::TokenInstruction(TokenInstructions::Transfer(ix)) = &mut decoded_ix {
+
+            if let DecodedInstruction::TokenInstruction(TokenInstructions::Transfer(ix)) =
+                &mut decoded_ix
+            {
                 if let Some(token_mint) = token_mints_by_account.get(&ix.source) {
                     ix.mint = Some(token_mint.clone());
                 }
             }
+
             decoded_instructions.push(decoded_ix);
         }
 
@@ -194,19 +200,25 @@ pub async fn create_transfer_graph(
         let UiInstruction::Parsed(ui_ix) = ix else {
             continue;
         };
+
         let UiParsedInstruction::Parsed(parsed_ix) = ui_ix else {
             continue;
         };
+
         let mut decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
             Ok(Some(decoded)) => decoded,
             Ok(None) => continue, // unrecognized instruction
             Err(err) => return Err(anyhow!("failed to decode instruction {err:#?}")),
         };
-        if let DecodedInstruction::TokenInstruction(TokenInstructions::Transfer(ix)) = &mut decoded_ix {
+
+        if let DecodedInstruction::TokenInstruction(TokenInstructions::Transfer(ix)) =
+            &mut decoded_ix
+        {
             if let Some(token_mint) = token_mints_by_account.get(&ix.source) {
                 ix.mint = Some(token_mint.clone());
             }
         }
+
         // instruction numbering in existing explorers always starts at 1, however
         // when using `enumerate` which counts the position of the element in a vec
         // we need to offset idx by 1

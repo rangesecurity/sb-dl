@@ -42,9 +42,11 @@ pub fn decode_instruction(
         .program_id
         .eq("11111111111111111111111111111111")
     {
-        match system::decode_system_instruction(partially_decoded).with_context(|| "failed to decode system instruction")? {
+        match system::decode_system_instruction(partially_decoded)
+            .with_context(|| "failed to decode system instruction")?
+        {
             Some(decoded) => return Ok(Some(DecodedInstruction::SystemInstruction(decoded))),
-            None => return Ok(None)
+            None => return Ok(None),
         }
     } else if parsed_instruction
         .program_id
@@ -54,10 +56,11 @@ pub fn decode_instruction(
             .eq("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
     {
         match token::decode_token_instruction(partially_decoded)
-                .with_context(|| "failed to decode token instruction")? {
-                    Some(decoded) => return Ok(Some(DecodedInstruction::TokenInstruction(decoded))),
-                    None => return Ok(None)
-                }
+            .with_context(|| "failed to decode token instruction")?
+        {
+            Some(decoded) => return Ok(Some(DecodedInstruction::TokenInstruction(decoded))),
+            None => return Ok(None),
+        }
     } else {
         Ok(None)
     }
@@ -77,7 +80,7 @@ pub mod system {
     pub enum SystemInstructions {
         Transfer(Transfer),
         CreateAccount(CreateAccount),
-        CreateAccountWithSeed(CreateAccountWithSeed)
+        CreateAccountWithSeed(CreateAccountWithSeed),
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -109,7 +112,7 @@ pub mod system {
     }
 
     /// # Returns
-    /// 
+    ///
     /// Err is decoding failed
     /// Ok(None) if this isnt a system instruction we are interested in decoding
     /// Ok(Some) if this is a system instruction we are interested in decoding
@@ -122,15 +125,15 @@ pub mod system {
                 partially_decoded.info,
             )?)))
         } else if CREATE_ACCOUNT.eq(ix_type) {
-            Ok(Some(SystemInstructions::CreateAccount(serde_json::from_value(
-                partially_decoded.info,
-            )?)))
+            Ok(Some(SystemInstructions::CreateAccount(
+                serde_json::from_value(partially_decoded.info)?,
+            )))
         } else if CREATE_ACCOUNT_WITH_SEED.eq(ix_type) {
-            Ok(Some(SystemInstructions::CreateAccountWithSeed(serde_json::from_value(
-                partially_decoded.info
-            )?)))
+            Ok(Some(SystemInstructions::CreateAccountWithSeed(
+                serde_json::from_value(partially_decoded.info)?,
+            )))
         } else {
-            return Ok(None)
+            return Ok(None);
         }
     }
 }
@@ -203,7 +206,7 @@ pub mod token {
         pub token_amount: UiTokenAmount,
     }
     /// # Returns
-    /// 
+    ///
     /// Err is decoding failed
     /// Ok(None) if this isnt a token instruction we are interested in decoding
     /// Ok(Some) if this is a token instruction we are interested in decoding
@@ -224,19 +227,19 @@ pub mod token {
                 partially_decoded.info,
             )?)))
         } else if TRANSFER_CHECKED.eq(ix_type) {
-            Ok(Some(TokenInstructions::TransferChecked(serde_json::from_value(
-                partially_decoded.info,
-            )?)))
+            Ok(Some(TokenInstructions::TransferChecked(
+                serde_json::from_value(partially_decoded.info)?,
+            )))
         } else if MINT_TO_CHECKED.eq(ix_type) {
-            Ok(Some(TokenInstructions::MintToChecked(serde_json::from_value(
-                partially_decoded.info,
-            )?)))
+            Ok(Some(TokenInstructions::MintToChecked(
+                serde_json::from_value(partially_decoded.info)?,
+            )))
         } else if BURN_CHECKED.eq(ix_type) {
-            Ok(Some(TokenInstructions::BurnChecked(serde_json::from_value(
-                partially_decoded.info,
-            )?)))
+            Ok(Some(TokenInstructions::BurnChecked(
+                serde_json::from_value(partially_decoded.info)?,
+            )))
         } else {
-            return Ok(None)
+            return Ok(None);
         }
     }
 }
@@ -366,7 +369,7 @@ mod test {
             program: "foobar".to_string(),
             program_id: "foobarbaz".to_string(),
             parsed: serde_json::json!({"a": "b"}),
-            stack_height: None
+            stack_height: None,
         };
         assert!(decode_instruction(&ix).is_err());
     }
