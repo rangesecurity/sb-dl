@@ -74,6 +74,8 @@ pub mod system {
         static ref TRANSFER: String = "transfer".to_string();
         static ref CREATE_ACCOUNT: String = "createAccount".to_string();
         static ref CREATE_ACCOUNT_WITH_SEED: String = "createAccountWithSeed".to_string();
+        static ref TRANSFER_WITH_SEED: String = "transferWithSeed".to_string();
+        static ref WITHDRAW_NONCE_ACCOUNT: String = "withdrawNonceAccount".to_string();
     }
 
     #[derive(Clone, Debug)]
@@ -81,6 +83,8 @@ pub mod system {
         Transfer(Transfer),
         CreateAccount(CreateAccount),
         CreateAccountWithSeed(CreateAccountWithSeed),
+        TransferWithSeed(TransferWithSeed),
+        WithdrawNonceAccount(WithdrawNonceAccount)
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -88,6 +92,33 @@ pub mod system {
         pub source: String,
         pub destination: String,
         pub lamports: u64,
+    }
+
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    pub struct TransferWithSeed {
+        pub source: String,
+        #[serde(alias = "sourceBase")]
+        pub source_base: String,
+        pub destination: String,
+        pub lamports: String,
+        #[serde(alias = "sourceSeed")]
+        pub source_seed: String,
+        #[serde(alias = "sourceOwner")]
+        pub source_owner: String,
+    }
+
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    pub struct WithdrawNonceAccount {
+        #[serde(alias = "nonceAccount")]
+        pub nonce_account: String,
+        pub destination: String,
+        #[serde(alias = "recentBlockhashesSysvar")]
+        pub recent_blockhashes_sysvar: String,
+        #[serde(alias = "rentSysvar")]
+        pub rent_sysvar: String,
+        #[serde(alias = "nonceAuthority")]
+        pub nonce_authority: String,
+        pub lamports: String,
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -132,6 +163,14 @@ pub mod system {
             Ok(Some(SystemInstructions::CreateAccountWithSeed(
                 serde_json::from_value(partially_decoded.info)?,
             )))
+        } else if TRANSFER_WITH_SEED.eq(ix_type) {
+            Ok(Some(SystemInstructions::TransferWithSeed(
+                serde_json::from_value(partially_decoded.info)?
+            )))
+        } else if WITHDRAW_NONCE_ACCOUNT.eq(ix_type) {
+            Ok(Some(SystemInstructions::WithdrawNonceAccount(
+                serde_json::from_value(partially_decoded.info)?
+            )))
         } else {
             return Ok(None);
         }
@@ -150,6 +189,7 @@ pub mod token {
         static ref TRANSFER_CHECKED: String = "transferChecked".to_string();
         static ref MINT_TO_CHECKED: String = "mintToChecked".to_string();
         static ref BURN_CHECKED: String = "burnChecked".to_string();
+        static ref CLOSE_ACCOUNT: String = "closeAccount".to_string();
     }
 
     #[derive(Clone, Debug)]
@@ -160,6 +200,7 @@ pub mod token {
         TransferChecked(TransferChecked),
         MintToChecked(MintToChecked),
         BurnChecked(BurnChecked),
+        CloseAccount(CloseAccount)
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -205,6 +246,20 @@ pub mod token {
         #[serde(alias = "tokenAmount")]
         pub token_amount: UiTokenAmount,
     }
+
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    pub struct CloseAccount {
+        pub owner: String,
+        pub account: String,
+        pub destination: String,
+        /// this is the SOL held by the token account at the time it was closed
+        /// in the case of wSOL, it will include rent cost + wsol held, and is set after
+        /// all instructions have been parsed
+        /// 
+        /// todo: not yet sure how to account for this
+        pub amount: Option<String>
+    }
+
     /// # Returns
     ///
     /// Err is decoding failed
@@ -236,6 +291,10 @@ pub mod token {
             )))
         } else if BURN_CHECKED.eq(ix_type) {
             Ok(Some(TokenInstructions::BurnChecked(
+                serde_json::from_value(partially_decoded.info)?,
+            )))
+        } else if CLOSE_ACCOUNT.eq(ix_type) {
+            Ok(Some(TokenInstructions::CloseAccount(
                 serde_json::from_value(partially_decoded.info)?,
             )))
         } else {

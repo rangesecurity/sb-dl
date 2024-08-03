@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context};
 use db::{client::BlockFilter, new_connection};
 use sb_dl::{
     config::Config,
-    parsable_instructions::{self, token::TokenInstructions, DecodedInstruction}, transfer_flow::prepare_transfer_flow_for_tx,
+    parsable_instructions::{self, token::TokenInstructions, DecodedInstruction}, transfer_flow::{prepare_transfer_flow_for_tx, prepare_transfer_graph},
 };
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedTransaction, UiConfirmedBlock, UiInnerInstructions,
@@ -40,5 +40,7 @@ pub async fn create_transfer_graph(
 
     let ordered_transfers = prepare_transfer_flow_for_tx(block, tx_hash)?;
     log::info!("{ordered_transfers:#?}");
+    prepare_transfer_graph(ordered_transfers)?;
+    //log::info!("{ordered_transfers:#?}");
     return Ok(());
 }

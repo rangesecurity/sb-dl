@@ -73,6 +73,8 @@ version = "0.1.1"
 features = ["convert"]
 [dependencies.lazy_static]
 version = "1"
+[dependencies.petgraph]
+version = "0.6"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]

@@ -1,3 +1,5 @@
+pub mod transfer;
+
 use {
     crate::parsable_instructions::{self, token::TokenInstructions, DecodedInstruction},
     anyhow::{anyhow, Context, Result},
@@ -7,17 +9,12 @@ use {
         EncodedTransactionWithStatusMeta, UiConfirmedBlock, UiInnerInstructions, UiInstruction,
         UiMessage, UiParsedInstruction, UiTransactionStatusMeta, UiTransactionTokenBalance,
     },
-    std::collections::HashMap,
+    std::collections::HashMap, transfer::Transfer,
+    petgraph::{
+        graph::{DiGraph, NodeIndex},
+        dot::{Dot, Config}
+    },
 };
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Transfer {
-    /// the sending token account
-    pub sender: String,
-    /// the recipient token account
-    pub recipient: String,
-    pub amount: u64,
-}
 
 pub struct TokenOwnerInfo {
     pub mint: String,
@@ -25,11 +22,58 @@ pub struct TokenOwnerInfo {
     pub account_index: u8,
 }
 
-/// The data we need to be able to reconstruct the flow of funds
-pub struct TransferData {
-    pub pre_token_balances: Vec<UiTransactionTokenBalance>,
-    pub post_token_balances: Vec<UiTransactionTokenBalance>,
-    pub token_owner_infos_by_index: HashMap<u8, TokenOwnerInfo>,
+pub fn prepare_transfer_graph(
+    transfer_flow: HashMap<
+    u8,
+    (
+        Option<DecodedInstruction>,
+        HashMap<u8, Vec<DecodedInstruction>>,
+    ),
+>
+) -> Result<()> {
+    let mut ordered_transfers: Vec<Transfer> = vec![];
+    let mut keys = transfer_flow.keys().map(|key| *key).collect::<Vec<_>>();
+    keys.sort();
+    for key in keys {
+        let (outer_transfer, inner_transfers) = transfer_flow.get(&key).with_context(|| "should not be None")?;
+        if let Some(transfer) = outer_transfer {
+            let transfer: Transfer = From::from(transfer.clone());
+            ordered_transfers.push(transfer);
+        }
+        if !inner_transfers.contains_key(&key) {
+            // no inner transfers
+            continue;
+        }
+        let inner_transfers = inner_transfers.get(&key).with_context(|| format!("should not be None for key {key}"))?;
+        for inner_transfer in inner_transfers {
+            let transfer: Transfer = From::from(inner_transfer.clone());
+            ordered_transfers.push(transfer);
+        }
+    }
+    let mut graph = DiGraph::new();
+
+    // Example Solana transfers
+    let transfer_data = vec![
+        ("Alice", "Bob", 50),
+        ("Bob", "Charlie", 20),
+        ("Alice", "Charlie", 30),
+        ("Charlie", "Dave", 10),
+    ];
+
+    // Map to store node indices
+    let mut node_indices = std::collections::HashMap::new();
+    for transfer in &ordered_transfers {
+        let sender_idx = *node_indices.entry(transfer.sender.clone()).or_insert_with(|| graph.add_node(transfer.sender.clone()));
+
+        let receiver_idx = *node_indices.entry(transfer.recipient.clone()).or_insert_with(|| graph.add_node(transfer.recipient.clone()));
+
+        graph.add_edge(sender_idx, receiver_idx, (transfer.mint.clone(), transfer.amount.clone()));
+    }
+    // Generate the dot format
+    let dot = Dot::with_config(&graph, &[]);
+
+    println!("{:?}", dot);
+    Ok(())
 }
 
 // instructions which can transfer funds:
@@ -111,7 +155,7 @@ pub fn prepare_transfer_flow_for_tx(
     let (account_keys, outer_instructions) = get_account_keys_and_outer_instructions(&tx)?;
 
     let mut token_mints_by_account =
-        get_token_mints_by_account(&token_owner_infos_by_index, &account_keys);
+        get_token_mints_by_owner(&token_owner_infos_by_index, &account_keys);
 
     let mut inner_instructions_by_index =
         get_inner_instructions_by_index(&token_mints_by_account, &inner_instructions)?;
@@ -273,7 +317,7 @@ fn get_account_keys_and_outer_instructions(
     }
 }
 
-fn get_token_mints_by_account(
+fn get_token_mints_by_owner(
     token_owner_infos_by_index: &HashMap<u8, TokenOwnerInfo>,
     account_keys: &[ParsedAccount],
 ) -> HashMap<String, String> {
