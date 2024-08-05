@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use lazy_static::lazy_static;
 use serde::{Serialize, Deserialize};
 
@@ -6,6 +8,30 @@ use crate::parsable_instructions::{system::SystemInstructions, token::TokenInstr
 lazy_static! {
     /// identify this as a sol transfer, not a wsol transfer
     static ref SOL_MINT: String = "So11111111111111111111111111111111111111111".to_string();
+}
+
+
+
+pub type TransferFlow = HashMap<
+u8,
+(
+    Option<DecodedInstruction>,
+    HashMap<u8, Vec<DecodedInstruction>>,
+),
+>;
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct OrderedTransfers {
+    pub tx_hash: String,
+    pub transfers: Vec<Transfer>,
+}
+
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct TokenOwnerInfo {
+    pub mint: String,
+    pub owner: String,
+    pub account_index: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

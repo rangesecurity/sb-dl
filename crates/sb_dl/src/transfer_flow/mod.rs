@@ -1,121 +1,99 @@
-pub mod transfer;
+//!/ instructions which can transfer funds:
+//!/ 11111111111111111111111111111111::transfer
+//!/ 11111111111111111111111111111111:createAccount
+//!/ 11111111111111111111111111111111:createAccountWithSeed (todo)
+//!/ 11111111111111111111111111111111::transferWithSeed (todo)
+//!/ 11111111111111111111111111111111::withdrawNonceAccount (todo)
+//!/
+//!/ TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::transfer
+//!/ TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::mintTo
+//!/ TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::burn
+//!/ TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::transferChecked
+//!/ TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::mintToChecked
+//!/ TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::burnChecked
+//!/ TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::closeAccount (todo)
+//!/  ^--- todo: this causes lamports to be sent back to the destination
+//!/  ^--- todo: we need tof igure out a way to calculate this
+//!
+//! TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::transfer
+//!/ TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::mintTo
+//!/ TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::burn
+//!/ TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::transferChecked
+//!/ TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::mintToChecked
+//!/ TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::burnChecked
+//!/ TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::closeAccount (todo)
+//!/  ^--- todo: this causes lamports to be sent back to the destination
+//!/  ^--- todo: we need tof igure out a way to calculate this
 
+pub mod types;
+pub mod transfer_graph;
 use {
-    crate::parsable_instructions::{self, token::TokenInstructions, DecodedInstruction},
-    anyhow::{anyhow, Context, Result},
-    serde::{Deserialize, Serialize},
-    solana_transaction_status::{
+    crate::parsable_instructions::{self, token::TokenInstructions, DecodedInstruction}, anyhow::{anyhow, Context, Result}, petgraph::{
+        dot::{Config, Dot}, graph::{DiGraph, NodeIndex}
+    }, serde::{Deserialize, Serialize}, solana_transaction_status::{
         option_serializer::OptionSerializer, parse_accounts::ParsedAccount, EncodedTransaction,
         EncodedTransactionWithStatusMeta, UiConfirmedBlock, UiInnerInstructions, UiInstruction,
         UiMessage, UiParsedInstruction, UiTransactionStatusMeta, UiTransactionTokenBalance,
-    },
-    std::collections::HashMap, transfer::Transfer,
-    petgraph::{
-        graph::{DiGraph, NodeIndex},
-        dot::{Dot, Config}
-    },
+    }, std::collections::HashMap, types::{OrderedTransfers, TokenOwnerInfo, Transfer, TransferFlow}
 };
 
-pub struct TokenOwnerInfo {
-    pub mint: String,
-    pub owner: String,
-    pub account_index: u8,
+
+// Create ordered transfers for an entire block
+pub fn create_ordered_transfer_for_block(
+    block: UiConfirmedBlock
+) -> Result<Vec<OrderedTransfers>> {
+
+    let ordered_transfers = block.transactions.with_context(|| "no txs found")?.into_iter().filter_map(|tx| {
+        let tx_hash = if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
+            if ui_tx.signatures.is_empty() {
+                log::warn!("found no signatures");
+                return None;
+            }
+            ui_tx.signatures[0].clone()
+        } else {
+            log::warn!("unsupportd tx type");
+            return None;
+        };
+        let transfer_flow = prepare_transfer_flow_for_tx(&tx)?;
+        match create_ordered_transfers(&tx_hash, transfer_flow) {
+            Ok(ordered_transfers) => Some(ordered_transfers),
+            Err(err) => {
+                log::debug!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
+                return None;
+            }
+        }
+    }).collect();
+    Ok(ordered_transfers)
 }
 
-pub fn prepare_transfer_graph(
-    transfer_flow: HashMap<
-    u8,
-    (
-        Option<DecodedInstruction>,
-        HashMap<u8, Vec<DecodedInstruction>>,
-    ),
->
-) -> Result<()> {
-    let mut ordered_transfers: Vec<Transfer> = vec![];
-    let mut keys = transfer_flow.keys().map(|key| *key).collect::<Vec<_>>();
-    keys.sort();
-    for key in keys {
-        let (outer_transfer, inner_transfers) = transfer_flow.get(&key).with_context(|| "should not be None")?;
-        if let Some(transfer) = outer_transfer {
-            let transfer: Transfer = From::from(transfer.clone());
-            ordered_transfers.push(transfer);
-        }
-        if !inner_transfers.contains_key(&key) {
-            // no inner transfers
-            continue;
-        }
-        let inner_transfers = inner_transfers.get(&key).with_context(|| format!("should not be None for key {key}"))?;
-        for inner_transfer in inner_transfers {
-            let transfer: Transfer = From::from(inner_transfer.clone());
-            ordered_transfers.push(transfer);
-        }
-    }
-    let mut graph = DiGraph::new();
-
-    // Example Solana transfers
-    let transfer_data = vec![
-        ("Alice", "Bob", 50),
-        ("Bob", "Charlie", 20),
-        ("Alice", "Charlie", 30),
-        ("Charlie", "Dave", 10),
-    ];
-
-    // Map to store node indices
-    let mut node_indices = std::collections::HashMap::new();
-    for transfer in &ordered_transfers {
-        let sender_idx = *node_indices.entry(transfer.sender.clone()).or_insert_with(|| graph.add_node(transfer.sender.clone()));
-
-        let receiver_idx = *node_indices.entry(transfer.recipient.clone()).or_insert_with(|| graph.add_node(transfer.recipient.clone()));
-
-        graph.add_edge(sender_idx, receiver_idx, (transfer.mint.clone(), transfer.amount.clone()));
-    }
-    // Generate the dot format
-    let dot = Dot::with_config(&graph, &[]);
-
-    println!("{:?}", dot);
-    Ok(())
-}
-
-// instructions which can transfer funds:
-// 11111111111111111111111111111111::transfer
-// 11111111111111111111111111111111:createAccount
-// 11111111111111111111111111111111:createAccountWithSeed (todo)
-// 11111111111111111111111111111111::transferWithSeed (todo)
-// 11111111111111111111111111111111::withdrawNonceAccount (todo)
-//
-// TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::transfer
-// TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::mintTo
-// TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::burn
-// TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::transferChecked
-// TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::mintToChecked
-// TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::burnChecked
-// TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA::closeAccount (todo)
-//  ^--- todo: this causes lamports to be sent back to the destination
-//  ^--- todo: we need tof igure out a way to calculate this
-
-// TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::transfer
-// TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::mintTo
-// TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::burn
-// TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::transferChecked
-// TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::mintToChecked
-// TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::burnChecked
-// TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb::closeAccount (todo)
-//  ^--- todo: this causes lamports to be sent back to the destination
-//  ^--- todo: we need tof igure out a way to calculate this
-
-// TODO: handle token extensions
-pub fn prepare_transfer_flow_for_tx(
+/// Creates ordered transfers for a single tx
+pub fn create_ordered_transfer_for_tx(
     block: UiConfirmedBlock,
     tx_hash: &str,
-) -> Result<
-    HashMap<
-        u8,
-        (
-            Option<DecodedInstruction>,
-            HashMap<u8, Vec<DecodedInstruction>>,
-        ),
-    >,
-> {
+) -> Result<OrderedTransfers> {
+    let tx = block
+    .transactions
+    .with_context(|| "no txs found")?
+    .iter()
+    .find(|tx| {
+        if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
+            if ui_tx.signatures[0].eq(tx_hash) {
+                return true;
+            }
+        }
+        false
+    })
+    .cloned()
+    .with_context(|| "failed to find matching tx")?;
+    let transfer_flow = prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")?;
+    create_ordered_transfers(tx_hash, transfer_flow)
+}
+
+// TODO: handle token extensions
+pub fn prepare_transfer_flow_for_tx_hash(
+    block: UiConfirmedBlock,
+    tx_hash: &str,
+) -> Result<TransferFlow> {
     let tx = block
         .transactions
         .with_context(|| "no txs found")?
@@ -130,7 +108,13 @@ pub fn prepare_transfer_flow_for_tx(
         })
         .cloned()
         .with_context(|| "failed to find matching tx")?;
-    let tx_meta = tx.meta.clone().with_context(|| "meta is none")?;
+    prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")
+}
+
+fn prepare_transfer_flow_for_tx(
+    tx: &EncodedTransactionWithStatusMeta,
+) -> Option<TransferFlow> {
+    let tx_meta = tx.meta.as_ref()?;
     // pre_balances[0] is equal to account_keys[0]
     let pre_balances = tx_meta.pre_balances.clone();
     let post_balances = tx_meta.post_balances.clone();
@@ -152,18 +136,18 @@ pub fn prepare_transfer_flow_for_tx(
 
     let inner_instructions = get_inner_instructions(&tx_meta);
 
-    let (account_keys, outer_instructions) = get_account_keys_and_outer_instructions(&tx)?;
+    let (account_keys, outer_instructions) = get_account_keys_and_outer_instructions(&tx).ok()?;
 
     let mut token_mints_by_account =
         get_token_mints_by_owner(&token_owner_infos_by_index, &account_keys);
 
     let mut inner_instructions_by_index =
-        get_inner_instructions_by_index(&token_mints_by_account, &inner_instructions)?;
+        get_inner_instructions_by_index(&token_mints_by_account, &inner_instructions).ok()?;
 
     let mut outer_instructions_by_index =
-        get_outer_instructions_by_index(&outer_instructions, &token_mints_by_account)?;
+        get_outer_instructions_by_index(&outer_instructions, &token_mints_by_account).ok()?;
 
-    Ok(get_ordered_transfers(
+    Some(get_ordered_transfers(
         outer_instructions_by_index,
         inner_instructions_by_index,
     ))
@@ -384,4 +368,37 @@ fn get_ordered_transfers(
         }
     }
     ordered_transfers
+}
+
+
+fn create_ordered_transfers(
+    tx_hash: &str,
+    transfer_flow: TransferFlow
+) -> anyhow::Result<OrderedTransfers> {
+    let mut ordered_transfers: Vec<Transfer> = vec![];
+    let mut keys = transfer_flow.keys().map(|key| *key).collect::<Vec<_>>();
+    keys.sort();
+    for key in keys {
+        let (outer_transfer, inner_transfers) = transfer_flow.get(&key).with_context(|| "should not be None")?;
+        if let Some(transfer) = outer_transfer {
+            let transfer: Transfer = From::from(transfer.clone());
+            ordered_transfers.push(transfer);
+        }
+        if !inner_transfers.contains_key(&key) {
+            // no inner transfers
+            continue;
+        }
+        let inner_transfers = inner_transfers.get(&key).with_context(|| format!("should not be None for key {key}"))?;
+        for inner_transfer in inner_transfers {
+            let transfer: Transfer = From::from(inner_transfer.clone());
+            ordered_transfers.push(transfer);
+        }
+    }
+    if ordered_transfers.is_empty() {
+        return Err(anyhow!("found no transfers"))
+    }
+    Ok(OrderedTransfers {
+        transfers: ordered_transfers,
+        tx_hash: tx_hash.to_string()
+    })
 }
