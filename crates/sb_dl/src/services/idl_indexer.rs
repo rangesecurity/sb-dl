@@ -1,18 +1,12 @@
-use std::{io::Read, time::Duration};
-
-use anyhow::Context;
-use flate2::read::GzDecoder;
-use flate2::read::ZlibDecoder;
-use flate2::write::{GzEncoder, ZlibEncoder};
-use flate2::Compression;
-use serde_json::json;
-use solana_account_decoder::UiAccountEncoding;
-use solana_client::{
-    nonblocking::rpc_client::RpcClient,
-    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
+use {
+    anyhow::Context,
+    flate2::read::ZlibDecoder,
+    serde_json::json,
+    solana_account_decoder::UiAccountEncoding,
+    solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcAccountInfoConfig},
+    solana_sdk::pubkey::Pubkey,
+    std::{io::Read, time::Duration},
 };
-use solana_sdk::pubkey::Pubkey;
-const IDL_SEED: &str = "anchor:idl";
 
 #[derive(borsh::BorshDeserialize, borsh::BorshSerialize)]
 pub struct IdlAccount {
@@ -41,7 +35,7 @@ impl IdlIndexer {
     pub async fn get_idl_accounts(&self, programs: &[Pubkey]) -> anyhow::Result<Vec<ProgramIdl>> {
         let program_idls = programs
             .into_iter()
-            .filter_map(|(program)| Some((program, IdlAccount::address(&program).ok()?)))
+            .filter_map(|program| Some((program, IdlAccount::address(&program).ok()?)))
             .collect::<Vec<_>>();
 
         let mut idls = Vec::with_capacity(program_idls.len());

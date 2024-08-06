@@ -25,18 +25,12 @@
 //!/  ^--- todo: this causes lamports to be sent back to the destination
 //!/  ^--- todo: we need tof igure out a way to calculate this
 
-pub mod api;
 pub mod transfer_graph;
 pub mod types;
 
 use {
     crate::parsable_instructions::{self, token::TokenInstructions, DecodedInstruction},
     anyhow::{anyhow, Context, Result},
-    petgraph::{
-        dot::{Config, Dot},
-        graph::{DiGraph, NodeIndex},
-    },
-    serde::{Deserialize, Serialize},
     solana_transaction_status::{
         option_serializer::OptionSerializer, parse_accounts::ParsedAccount, EncodedTransaction,
         EncodedTransactionWithStatusMeta, UiConfirmedBlock, UiInnerInstructions, UiInstruction,
@@ -125,8 +119,8 @@ pub fn prepare_transfer_flow_for_tx_hash(
 fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option<TransferFlow> {
     let tx_meta = tx.meta.as_ref()?;
     // pre_balances[0] is equal to account_keys[0]
-    let pre_balances = tx_meta.pre_balances.clone();
-    let post_balances = tx_meta.post_balances.clone();
+    let _pre_balances = tx_meta.pre_balances.clone();
+    let _post_balances = tx_meta.post_balances.clone();
 
     // pre_token_balances[X].account_index = 1 is equal to account_keys[1]
     let pre_token_balances = if let OptionSerializer::Some(bals) = &tx_meta.pre_token_balances {
@@ -147,13 +141,13 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option
 
     let (account_keys, outer_instructions) = get_account_keys_and_outer_instructions(&tx).ok()?;
 
-    let mut token_mints_by_account =
+    let token_mints_by_account =
         get_token_mints_by_owner(&token_owner_infos_by_index, &account_keys);
 
-    let mut inner_instructions_by_index =
+    let inner_instructions_by_index =
         get_inner_instructions_by_index(&token_mints_by_account, &inner_instructions).ok()?;
 
-    let mut outer_instructions_by_index =
+    let outer_instructions_by_index =
         get_outer_instructions_by_index(&outer_instructions, &token_mints_by_account).ok()?;
 
     Some(get_ordered_transfers(

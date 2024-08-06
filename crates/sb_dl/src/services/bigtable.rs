@@ -1,13 +1,9 @@
-
 use {
+    crate::{config::BigTableConfig, utils::process_block},
     anyhow::{anyhow, Context},
     bigtable_rs::{
         bigtable::{read_rows::decode_read_rows_response, BigTableConnection},
         google::bigtable::v2::{row_filter::Filter, ReadRowsRequest, RowFilter, RowSet},
-    },
-    crate::{
-        config::BigTableConfig,
-        utils::process_block,
     },
     solana_sdk::clock::Slot,
     solana_storage_bigtable::{
@@ -147,7 +143,7 @@ impl Downloader {
         )
         .await
         .with_context(|| "failed to decode response")?;
-    
+
         // ensure we got a single response, as we requested 1 slot
         if response.len() != 1 {
             // block does not exist and cant be found

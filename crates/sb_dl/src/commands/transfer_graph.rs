@@ -1,14 +1,14 @@
-use std::collections::HashMap;
-
-use anyhow::{anyhow, Context};
-use db::{client::BlockFilter, new_connection};
-use sb_dl::{
-    config::Config,
-    parsable_instructions::{self, token::TokenInstructions, DecodedInstruction}, transfer_flow::{create_ordered_transfer_for_block, prepare_transfer_flow_for_tx_hash, transfer_graph::prepare_transfer_graph},
-};
-use solana_transaction_status::{
-    option_serializer::OptionSerializer, EncodedTransaction, UiConfirmedBlock, UiInnerInstructions,
-    UiInstruction, UiMessage, UiParsedInstruction, UiTransactionTokenBalance,
+use {
+    anyhow::anyhow,
+    db::{client::BlockFilter, new_connection},
+    sb_dl::{
+        config::Config,
+        transfer_flow::{
+            create_ordered_transfer_for_block, prepare_transfer_flow_for_tx_hash,
+            transfer_graph::prepare_transfer_graph,
+        },
+    },
+    solana_transaction_status::UiConfirmedBlock,
 };
 
 #[derive(Clone)]
@@ -45,7 +45,6 @@ pub async fn create_transfer_graph_for_tx(
     return Ok(());
 }
 
-
 pub async fn create_ordered_transfers_for_entire_block(
     matches: &clap::ArgMatches,
     config_path: &str,
@@ -65,6 +64,9 @@ pub async fn create_ordered_transfers_for_entire_block(
 
     let block: UiConfirmedBlock = serde_json::from_value(block.data)?;
     let ordered_transfers = create_ordered_transfer_for_block(block)?;
-    log::info!("founds {} transfers for block({slot_number})", ordered_transfers.len());
+    log::info!(
+        "founds {} transfers for block({slot_number})",
+        ordered_transfers.len()
+    );
     return Ok(());
 }

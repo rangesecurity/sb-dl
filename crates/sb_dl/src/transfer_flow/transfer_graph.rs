@@ -1,7 +1,7 @@
 use {
     super::types::TransferFlow,
     crate::transfer_flow::types::Transfer,
-    anyhow::{anyhow, Context, Result},
+    anyhow::{Context, Result},
     petgraph::{dot::Dot, graph::DiGraph},
 };
 

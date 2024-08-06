@@ -4,7 +4,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart={{ app_root }}/sb_dl --log-file {{ app_root }}/sb_dl_bigtable.log --config {{ app_root }}/config.yaml download --start 268122733 --limit 100 --failed-blocks {{ app_root }}/failed_blocks
+ExecStart={{ app_root }}/sb_dl --log-file {{ app_root }}/logs/sb_dl_bigtable.log --config {{ app_root }}/config.yaml services bigtable-downloader --start 268122733 --limit 100 --failed-blocks {{ app_root }}/failed_blocks
 
 # Restart every >2 seconds to avoid StartLimitInterval failure
 RestartSec=30

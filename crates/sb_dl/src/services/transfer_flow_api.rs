@@ -1,22 +1,20 @@
-//! provides an api service that can be used to return ordered transfers contained within a block (or tx hash)
 use {
-    super::{create_ordered_transfer_for_block, types::OrderedTransfers},
-    anyhow::{anyhow, Context},
+    crate::transfer_flow::{create_ordered_transfer_for_block, types::OrderedTransfers},
+    anyhow::Context,
     axum::{
         extract::{Extension, Path},
         http::StatusCode,
         response::IntoResponse,
-        routing::{get, post},
+        routing::get,
         Json, Router,
     },
     db::{client::BlockFilter, new_connection_pool},
-    deadpool_diesel::{Manager, Pool, Status},
+    deadpool_diesel::{Manager, Pool},
     diesel::prelude::*,
     serde::{Deserialize, Serialize},
     solana_transaction_status::UiConfirmedBlock,
     std::sync::Arc,
 };
-
 #[derive(Clone)]
 pub struct State {
     db_pool: Pool<Manager<PgConnection>>,

@@ -3,7 +3,7 @@ use {
     anyhow::{anyhow, Context, Result},
     futures::{sink::SinkExt, stream::StreamExt},
     solana_transaction_status::UiConfirmedBlock,
-    std::{any::Any, collections::HashMap, time::Duration},
+    std::{collections::HashMap, time::Duration},
     yellowstone_grpc_client::{GeyserGrpcClient, Interceptor},
     yellowstone_grpc_proto::{
         convert_from::create_block,
@@ -96,7 +96,7 @@ pub async fn subscribe_blocks(
                         log::error!("failed to convert block {err:#?}")
                     }
                 },
-                Some(UpdateOneof::Pong(_)) => {},
+                Some(UpdateOneof::Pong(_)) => {}
                 Some(msg_one_of) => {
                     log::warn!("unsupported message received {msg_one_of:#?}");
                 }

@@ -39,9 +39,9 @@ impl Default for Config {
             geyser: Geyser {
                 endpoint: "".to_string(),
                 token: "".to_string(),
-                max_decoding_size: 100*1024*1024,
-                max_encoding_size: 100*1024*1024
-            }
+                max_decoding_size: 100 * 1024 * 1024,
+                max_encoding_size: 100 * 1024 * 1024,
+            },
         }
     }
 }
@@ -54,7 +54,7 @@ impl Default for BigTableConfig {
             instance_name: "solana-ledger".to_string(),
             channel_size: 10,
             timeout: Duration::from_secs(10),
-            max_decoding_size: 100*1024*1024
+            max_decoding_size: 100 * 1024 * 1024,
         }
     }
 }
