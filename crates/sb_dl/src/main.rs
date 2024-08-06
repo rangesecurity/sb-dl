@@ -65,6 +65,10 @@ async fn main() -> Result<()> {
                                 .long("listen-url")
                                 .help("url to expose the api on"),
                         ),
+                    Command::new("index-spl-token-mints")
+                    .about("index spl-token mint accounts"),
+                    Command::new("index-spl-token2022-mints")
+                    .about("index spl-token mint accounts")
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag()),
             Command::new("new-config"),
@@ -167,6 +171,8 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             Some(("transfer-flow-api", tfa)) => {
                 commands::services::transfer_api::transfer_flow_api(tfa, config_path).await
             }
+            Some(("index-spl-token-mints", _)) => commands::services::mint_indexer::index_spl_token_mints(config_path).await,
+            Some(("index-spl-token2022-mints", _)) => commands::services::mint_indexer::index_spl_token2022_mints(config_path).await,
             _ => Err(anyhow!("invalid subcommand")),
         },
         _ => Err(anyhow!("invalid subcommand")),

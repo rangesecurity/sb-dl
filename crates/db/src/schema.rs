@@ -33,4 +33,22 @@ diesel::table! {
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(blocks, idls, programs,);
+diesel::table! {
+    use diesel::sql_types::*;
+
+    token_mints (id) {
+        id -> Uuid,
+        mint -> Varchar,
+        name -> Nullable<Varchar>,
+        symbol -> Nullable<Varchar>,
+        decimals -> Float4,
+        token_2022 -> Bool,
+    }
+}
+
+diesel::allow_tables_to_appear_in_same_query!(
+    blocks,
+    idls,
+    programs,
+    token_mints,
+);
