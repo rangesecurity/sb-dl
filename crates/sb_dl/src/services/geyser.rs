@@ -3,7 +3,7 @@ use {
     anyhow::{anyhow, Context, Result},
     futures::{sink::SinkExt, stream::StreamExt},
     solana_transaction_status::UiConfirmedBlock,
-    std::{any::Any, collections::HashMap, time::Duration},
+    std::{collections::HashMap, time::Duration},
     yellowstone_grpc_client::{GeyserGrpcClient, Interceptor},
     yellowstone_grpc_proto::{
         convert_from::create_block,

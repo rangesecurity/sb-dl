@@ -1,11 +1,11 @@
-use std::time::Duration;
-
-use anyhow::Context;
-use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcBlockConfig};
-use solana_sdk::commitment_config::CommitmentConfig;
-use solana_transaction_status::{TransactionDetails, UiConfirmedBlock, UiTransactionEncoding};
-
-use crate::utils::{filter_vote_transactions, process_block};
+use {
+    crate::utils::filter_vote_transactions,
+    anyhow::Context,
+    solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcBlockConfig},
+    solana_sdk::commitment_config::CommitmentConfig,
+    solana_transaction_status::{TransactionDetails, UiConfirmedBlock, UiTransactionEncoding},
+    std::time::Duration,
+};
 
 pub struct Backfiller {
     rpc: RpcClient,
@@ -29,7 +29,7 @@ impl Backfiller {
                 .await
                 .with_context(|| "failed to get block height")?;
             // backfill 300 most recent blocks, over estimating blocks per second by 2x
-            for slot_height in (current_height - 300..current_height) {
+            for slot_height in current_height - 300..current_height {
                 match self
                     .rpc
                     .get_block_with_config(

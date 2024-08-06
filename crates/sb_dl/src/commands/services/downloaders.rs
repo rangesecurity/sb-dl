@@ -14,7 +14,7 @@ use {
             geyser::{new_geyser_client, subscribe_blocks},
         },
     },
-    solana_transaction_status::{EncodedTransaction, UiConfirmedBlock},
+    solana_transaction_status::UiConfirmedBlock,
     std::collections::HashSet,
     tokio::signal::unix::{signal, Signal, SignalKind},
 };

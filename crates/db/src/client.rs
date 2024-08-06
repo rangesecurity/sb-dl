@@ -211,7 +211,7 @@ impl Client {
                 .select(Programs::as_select())
                 .load(conn)
             {
-                Ok(mut p_infos) => {
+                Ok(p_infos) => {
                     if p_infos.is_empty() {
                         // new idl
                         Programs {

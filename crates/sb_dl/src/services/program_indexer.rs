@@ -1,21 +1,17 @@
-use std::time::Duration;
-
-use anyhow::Context;
-use solana_account_decoder::{
-    parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType},
-    UiAccountEncoding,
-};
-use solana_client::{
-    nonblocking::rpc_client::RpcClient,
-    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
-};
-use solana_sdk::{
-    address_lookup_table::state::ProgramState,
-    bpf_loader_upgradeable::{self, UpgradeableLoaderState},
-    pubkey::Pubkey,
+use {
+    anyhow::Context,
+    solana_account_decoder::{
+        parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType},
+        UiAccountEncoding,
+    },
+    solana_client::{
+        nonblocking::rpc_client::RpcClient,
+        rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
+    },
+    solana_sdk::{bpf_loader_upgradeable, pubkey::Pubkey},
+    std::time::Duration,
 };
 
-const IDL_SEED: &str = "anchor:idl";
 #[derive(Clone)]
 pub struct ProgramInfo {
     pub program_id: Pubkey,

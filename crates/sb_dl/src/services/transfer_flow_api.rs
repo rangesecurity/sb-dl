@@ -1,15 +1,15 @@
 use {
     crate::transfer_flow::{create_ordered_transfer_for_block, types::OrderedTransfers},
-    anyhow::{anyhow, Context},
+    anyhow::Context,
     axum::{
         extract::{Extension, Path},
         http::StatusCode,
         response::IntoResponse,
-        routing::{get, post},
+        routing::get,
         Json, Router,
     },
     db::{client::BlockFilter, new_connection_pool},
-    deadpool_diesel::{Manager, Pool, Status},
+    deadpool_diesel::{Manager, Pool},
     diesel::prelude::*,
     serde::{Deserialize, Serialize},
     solana_transaction_status::UiConfirmedBlock,

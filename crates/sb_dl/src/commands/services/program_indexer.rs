@@ -1,8 +1,5 @@
 use db::{migrations::run_migrations, new_connection};
-use sb_dl::{
-    config::Config,
-    services::{idl_indexer::IdlIndexer, program_indexer::ProgramIndexer},
-};
+use sb_dl::{config::Config, services::program_indexer::ProgramIndexer};
 
 pub async fn index_programs(config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;

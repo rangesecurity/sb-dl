@@ -1,10 +1,9 @@
 use {
     anyhow::Context,
-    solana_sdk::{message::VersionedMessage, pubkey::Pubkey},
+    solana_sdk::pubkey::Pubkey,
     solana_transaction_status::{
         BlockEncodingOptions, ConfirmedBlock, EncodedTransaction, TransactionDetails,
-        TransactionWithStatusMeta, UiConfirmedBlock, UiInstruction, UiMessage, UiParsedInstruction,
-        UiTransactionEncoding,
+        UiConfirmedBlock, UiInstruction, UiMessage, UiParsedInstruction, UiTransactionEncoding,
     },
     std::str::FromStr,
     tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter, Layer},
