@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use db::{migrations::run_migrations, new_connection};
-use sb_dl::{config::Config, idl::IdlIndexer};
+use sb_dl::{config::Config, services::idl_indexer::IdlIndexer};
 use solana_sdk::pubkey::Pubkey;
 
 pub async fn index_idls(

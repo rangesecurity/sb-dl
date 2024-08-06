@@ -25,7 +25,6 @@
 //!/  ^--- todo: this causes lamports to be sent back to the destination
 //!/  ^--- todo: we need tof igure out a way to calculate this
 
-pub mod api;
 pub mod transfer_graph;
 pub mod types;
 

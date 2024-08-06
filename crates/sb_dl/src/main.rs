@@ -28,7 +28,11 @@ async fn main() -> Result<()> {
                 .default_value("config.yaml"),
         )
         .subcommands(vec![
-            Command::new("download")
+            Command::new("services")
+            .about("service management commands")
+            .subcommands(vec![
+                Command::new("bigtable-downloader")
+                .about("download historical block data using bigtable")
                 .arg(
                     Arg::new("start")
                         .long("start")
@@ -42,65 +46,31 @@ async fn main() -> Result<()> {
                         .value_parser(value_parser!(u64))
                         .required(false),
                 )
+                .arg(no_minimization_flag())
+                .arg(failed_blocks_flag()),
+                Command::new("backfiller")
+                .about("block backfiller to covers gaps missed by geyser")
+                .arg(no_minimization_flag())
+                .arg(failed_blocks_flag()),
+                Command::new("geyser-stream")
+                .about("stream blocks in real-time using geyser")
+                .arg(no_minimization_flag())
+                .arg(failed_blocks_flag()),
+                Command::new("index-idls")
+                .about("index anchor idl accounts"),
+                Command::new("index-programs")
+                .about("index deployed programs"),
+                Command::new("transfer-flow-api")
+                .about("starts api used to returned transfer flow data")
                 .arg(
-                    Arg::new("no-minimization")
-                        .long("no-minimization")
-                        .help("if present, disable block minimization")
-                        .action(clap::ArgAction::SetTrue)
-                        .default_value("false")
-                        .required(false),
+                    Arg::new("listen-url")
+                    .long("listen-url")
+                    .help("url to expose the api on")
                 )
-                .arg(
-                    Arg::new("failed-blocks")
-                    .long("failed-blocks")
-                    .help("directory to store failed blocks in")
-                    .default_value("failed_blocks")
-                    .required(false)
-                ),
-                Command::new("import-failed-blocks")
-                .arg(
-                    Arg::new("failed-blocks")
-                    .long("failed-blocks")
-                    .help("directory to store failed blocks in")
-                    .default_value("failed_blocks")
-                    .required(false)
-                ),
+            ]),
+            Command::new("import-failed-blocks")
+            .arg(failed_blocks_flag()),
             Command::new("new-config"),
-            Command::new("geyser-stream")
-            .arg(
-                Arg::new("no-minimization")
-                    .long("no-minimization")
-                    .help("if present, disable block minimization")
-                    .action(clap::ArgAction::SetTrue)
-                    .default_value("false")
-                    .required(false),
-            )
-            .arg(
-                Arg::new("failed-blocks")
-                .long("failed-blocks")
-                .help("directory to store failed blocks in")
-                .default_value("failed_blocks")
-                .required(false)
-            ),
-            Command::new("backfiller")
-            .about("block backfiller to covers gaps missed by geyser")
-            .arg(
-                Arg::new("no-minimization")
-                    .long("no-minimization")
-                    .help("if present, disable block minimization")
-                    .action(clap::ArgAction::SetTrue)
-                    .default_value("false")
-                    .required(false),
-            )
-            .arg(
-                Arg::new("failed-blocks")
-                .long("failed-blocks")
-                .help("directory to store failed blocks in")
-                .default_value("failed_blocks")
-                .required(false)
-            ),
-            Command::new("index-idls"),
-            Command::new("index-programs"),
             Command::new("manual-idl-import")
             .about("manually import an idl into the database")
             .long_about("useful for programs that publish anchor idls offchain")
@@ -143,13 +113,6 @@ async fn main() -> Result<()> {
                 .help("slot number to fetch tx from")
                 .value_parser(clap::value_parser!(i64))
             ),
-            Command::new("transfer-flow-api")
-            .about("starts api used to returned transfer flow data")
-            .arg(
-                Arg::new("listen-url")
-                .long("listen-url")
-                .help("url to expose the api on")
-            )
         ])
         .get_matches();
 
@@ -171,18 +134,39 @@ async fn main() -> Result<()> {
 
 async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     match matches.subcommand() {
-        Some(("download", dl)) => commands::download::start(dl, config_path).await,
-        Some(("import-failed-blocks", ifb)) => commands::download::import_failed_blocks(ifb, config_path).await,
+        Some(("import-failed-blocks", ifb)) => commands::services::downloaders::import_failed_blocks(ifb, config_path).await,
         Some(("new-config", _)) => commands::config::new_config(config_path).await,
-        Some(("geyser-stream", gs)) => commands::download::stream_geyser_blocks(gs, config_path).await,
-        Some(("backfiller", bf)) => commands::download::recent_backfill(bf, config_path).await,
-        Some(("index-idls", _)) => commands::idl_indexer::index_idls(config_path).await,
-        Some(("index-programs", _)) => commands::program_indexer::index_programs(config_path).await,
-        Some(("manual-idl-import", mii)) => commands::idl_indexer::manual_idl_import(mii, config_path).await,
+        Some(("manual-idl-import", mii)) => commands::services::idl_indexer::manual_idl_import(mii, config_path).await,
         Some(("fill-missing-slots", fms)) => commands::db::fill_missing_slots(fms, config_path).await,
         Some(("create-transfer-graph", ctg)) => commands::transfer_graph::create_transfer_graph_for_tx(ctg, config_path).await,
         Some(("create-ordered-transfers-for-block", cotfb)) => commands::transfer_graph::create_ordered_transfers_for_entire_block(cotfb, config_path).await,
-        Some(("transfer-flow-api", tfa)) => commands::transfer_api::transfer_flow_api(tfa, config_path).await,
+        Some(("services", s)) => match s.subcommand() {
+            Some(("bigtable-downloader", bd)) => commands::services::downloaders::bigtable_downloader(bd, config_path).await,
+            Some(("geyser-stream", gs)) => commands::services::downloaders::geyser_stream(gs, config_path).await,
+            Some(("backfiller", bf)) => commands::services::downloaders::backfiller(bf, config_path).await,
+            Some(("index-idls", _)) => commands::services::idl_indexer::index_idls(config_path).await,
+            Some(("index-programs", _)) => commands::services::program_indexer::index_programs(config_path).await,
+            Some(("transfer-flow-api", tfa)) => commands::services::transfer_api::transfer_flow_api(tfa, config_path).await,
+            _ => Err(anyhow!("invalid subcommand"))
+        }
         _ => Err(anyhow!("invalid subcommand")),
     }
+}
+
+
+fn no_minimization_flag() -> Arg {
+    Arg::new("no-minimization")
+    .long("no-minimization")
+    .help("if present, disable block minimization")
+    .action(clap::ArgAction::SetTrue)
+    .default_value("false")
+    .required(false)
+}
+
+fn failed_blocks_flag() -> Arg {
+    Arg::new("failed-blocks")
+    .long("failed-blocks")
+    .help("directory to store failed blocks in")
+    .default_value("failed_blocks")
+    .required(false)    
 }

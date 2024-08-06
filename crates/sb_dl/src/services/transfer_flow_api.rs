@@ -1,6 +1,6 @@
-//! provides an api service that can be used to return ordered transfers contained within a block (or tx hash)
+
 use {
-    super::{create_ordered_transfer_for_block, types::OrderedTransfers},
+    crate::transfer_flow::{create_ordered_transfer_for_block, types::OrderedTransfers},
     anyhow::{anyhow, Context},
     axum::{
         extract::{Extension, Path},
@@ -16,7 +16,6 @@ use {
     solana_transaction_status::UiConfirmedBlock,
     std::sync::Arc,
 };
-
 #[derive(Clone)]
 pub struct State {
     db_pool: Pool<Manager<PgConnection>>,

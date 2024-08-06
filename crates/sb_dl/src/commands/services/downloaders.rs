@@ -1,15 +1,14 @@
 use {
-    super::utils::{get_failed_blocks, load_failed_blocks, sanitize_for_postgres, sanitize_value},
+    super::super::utils::{get_failed_blocks, load_failed_blocks, sanitize_for_postgres, sanitize_value},
     anyhow::anyhow,
     clap::ArgMatches,
     db::migrations::run_migrations,
     diesel::PgConnection,
-    sb_dl::{
+    sb_dl::{config::Config, services::{
         backfill::Backfiller,
         bigtable::Downloader,
-        config::Config,
         geyser::{new_geyser_client, subscribe_blocks},
-    },
+    }},
     solana_transaction_status::{EncodedTransaction, UiConfirmedBlock},
     std::collections::HashSet,
     tokio::signal::unix::{signal, Signal, SignalKind},
@@ -17,7 +16,7 @@ use {
 
 
 /// Starts the big table historical block downloader
-pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;
     let start = matches.get_one::<u64>("start").cloned();
     let limit = matches.get_one::<u64>("limit").cloned();
@@ -89,7 +88,7 @@ pub async fn start(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()
 }
 
 /// Starts the geyser stream block downloader
-pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
 
@@ -144,7 +143,7 @@ pub async fn stream_geyser_blocks(matches: &ArgMatches, config_path: &str) -> an
     handle_exit(sig_quit, sig_int, sig_term, finished_rx).await
 }
 
-pub async fn recent_backfill(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
 
