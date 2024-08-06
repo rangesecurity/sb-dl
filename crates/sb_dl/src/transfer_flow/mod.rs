@@ -25,46 +25,54 @@
 //!/  ^--- todo: this causes lamports to be sent back to the destination
 //!/  ^--- todo: we need tof igure out a way to calculate this
 
-pub mod types;
-pub mod transfer_graph;
 pub mod api;
+pub mod transfer_graph;
+pub mod types;
 
 use {
-    crate::parsable_instructions::{self, token::TokenInstructions, DecodedInstruction}, anyhow::{anyhow, Context, Result}, petgraph::{
-        dot::{Config, Dot}, graph::{DiGraph, NodeIndex}
-    }, serde::{Deserialize, Serialize}, solana_transaction_status::{
+    crate::parsable_instructions::{self, token::TokenInstructions, DecodedInstruction},
+    anyhow::{anyhow, Context, Result},
+    petgraph::{
+        dot::{Config, Dot},
+        graph::{DiGraph, NodeIndex},
+    },
+    serde::{Deserialize, Serialize},
+    solana_transaction_status::{
         option_serializer::OptionSerializer, parse_accounts::ParsedAccount, EncodedTransaction,
         EncodedTransactionWithStatusMeta, UiConfirmedBlock, UiInnerInstructions, UiInstruction,
         UiMessage, UiParsedInstruction, UiTransactionStatusMeta, UiTransactionTokenBalance,
-    }, std::collections::HashMap, types::{OrderedTransfers, TokenOwnerInfo, Transfer, TransferFlow}
+    },
+    std::collections::HashMap,
+    types::{OrderedTransfers, TokenOwnerInfo, Transfer, TransferFlow},
 };
 
-
 // Create ordered transfers for an entire block
-pub fn create_ordered_transfer_for_block(
-    block: UiConfirmedBlock
-) -> Result<Vec<OrderedTransfers>> {
-
-    let ordered_transfers = block.transactions.with_context(|| "no txs found")?.into_iter().filter_map(|tx| {
-        let tx_hash = if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
-            if ui_tx.signatures.is_empty() {
-                log::warn!("found no signatures");
+pub fn create_ordered_transfer_for_block(block: UiConfirmedBlock) -> Result<Vec<OrderedTransfers>> {
+    let ordered_transfers = block
+        .transactions
+        .with_context(|| "no txs found")?
+        .into_iter()
+        .filter_map(|tx| {
+            let tx_hash = if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
+                if ui_tx.signatures.is_empty() {
+                    log::warn!("found no signatures");
+                    return None;
+                }
+                ui_tx.signatures[0].clone()
+            } else {
+                log::warn!("unsupportd tx type");
                 return None;
+            };
+            let transfer_flow = prepare_transfer_flow_for_tx(&tx)?;
+            match create_ordered_transfers(&tx_hash, transfer_flow) {
+                Ok(ordered_transfers) => Some(ordered_transfers),
+                Err(err) => {
+                    log::debug!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
+                    return None;
+                }
             }
-            ui_tx.signatures[0].clone()
-        } else {
-            log::warn!("unsupportd tx type");
-            return None;
-        };
-        let transfer_flow = prepare_transfer_flow_for_tx(&tx)?;
-        match create_ordered_transfers(&tx_hash, transfer_flow) {
-            Ok(ordered_transfers) => Some(ordered_transfers),
-            Err(err) => {
-                log::debug!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
-                return None;
-            }
-        }
-    }).collect();
+        })
+        .collect();
     Ok(ordered_transfers)
 }
 
@@ -74,20 +82,21 @@ pub fn create_ordered_transfer_for_tx(
     tx_hash: &str,
 ) -> Result<OrderedTransfers> {
     let tx = block
-    .transactions
-    .with_context(|| "no txs found")?
-    .iter()
-    .find(|tx| {
-        if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
-            if ui_tx.signatures[0].eq(tx_hash) {
-                return true;
+        .transactions
+        .with_context(|| "no txs found")?
+        .iter()
+        .find(|tx| {
+            if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
+                if ui_tx.signatures[0].eq(tx_hash) {
+                    return true;
+                }
             }
-        }
-        false
-    })
-    .cloned()
-    .with_context(|| "failed to find matching tx")?;
-    let transfer_flow = prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")?;
+            false
+        })
+        .cloned()
+        .with_context(|| "failed to find matching tx")?;
+    let transfer_flow =
+        prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")?;
     create_ordered_transfers(tx_hash, transfer_flow)
 }
 
@@ -113,9 +122,7 @@ pub fn prepare_transfer_flow_for_tx_hash(
     prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")
 }
 
-fn prepare_transfer_flow_for_tx(
-    tx: &EncodedTransactionWithStatusMeta,
-) -> Option<TransferFlow> {
+fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option<TransferFlow> {
     let tx_meta = tx.meta.as_ref()?;
     // pre_balances[0] is equal to account_keys[0]
     let pre_balances = tx_meta.pre_balances.clone();
@@ -372,16 +379,17 @@ fn get_ordered_transfers(
     ordered_transfers
 }
 
-
 fn create_ordered_transfers(
     tx_hash: &str,
-    transfer_flow: TransferFlow
+    transfer_flow: TransferFlow,
 ) -> anyhow::Result<OrderedTransfers> {
     let mut ordered_transfers: Vec<Transfer> = vec![];
     let mut keys = transfer_flow.keys().map(|key| *key).collect::<Vec<_>>();
     keys.sort();
     for key in keys {
-        let (outer_transfer, inner_transfers) = transfer_flow.get(&key).with_context(|| "should not be None")?;
+        let (outer_transfer, inner_transfers) = transfer_flow
+            .get(&key)
+            .with_context(|| "should not be None")?;
         if let Some(transfer) = outer_transfer {
             let transfer: Transfer = From::from(transfer.clone());
             ordered_transfers.push(transfer);
@@ -390,17 +398,19 @@ fn create_ordered_transfers(
             // no inner transfers
             continue;
         }
-        let inner_transfers = inner_transfers.get(&key).with_context(|| format!("should not be None for key {key}"))?;
+        let inner_transfers = inner_transfers
+            .get(&key)
+            .with_context(|| format!("should not be None for key {key}"))?;
         for inner_transfer in inner_transfers {
             let transfer: Transfer = From::from(inner_transfer.clone());
             ordered_transfers.push(transfer);
         }
     }
     if ordered_transfers.is_empty() {
-        return Err(anyhow!("found no transfers"))
+        return Err(anyhow!("found no transfers"));
     }
     Ok(OrderedTransfers {
         transfers: ordered_transfers,
-        tx_hash: tx_hash.to_string()
+        tx_hash: tx_hash.to_string(),
     })
 }
