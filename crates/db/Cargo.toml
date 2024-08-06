@@ -12,6 +12,9 @@ features = ["serde_json", "chrono", "uuid", "postgres", "r2d2"]
 [dependencies.diesel_migrations]
 version = "2"
 features = ["postgres"]
+[dependencies.deadpool-diesel]
+version = "0.4.1"
+features = ["postgres", "serde"]
 [dependencies.uuid]
 version = "1"
 features = ["serde", "v4"]
