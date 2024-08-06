@@ -27,6 +27,8 @@
 
 pub mod types;
 pub mod transfer_graph;
+pub mod api;
+
 use {
     crate::parsable_instructions::{self, token::TokenInstructions, DecodedInstruction}, anyhow::{anyhow, Context, Result}, petgraph::{
         dot::{Config, Dot}, graph::{DiGraph, NodeIndex}

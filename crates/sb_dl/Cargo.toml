@@ -75,6 +75,9 @@ features = ["convert"]
 version = "1"
 [dependencies.petgraph]
 version = "0.6"
+[dependencies.axum]
+version = "0.7"
+
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]
