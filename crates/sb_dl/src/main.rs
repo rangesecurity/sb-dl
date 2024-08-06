@@ -142,6 +142,13 @@ async fn main() -> Result<()> {
                 .long("slot-number")
                 .help("slot number to fetch tx from")
                 .value_parser(clap::value_parser!(i64))
+            ),
+            Command::new("transfer-flow-api")
+            .about("starts api used to returned transfer flow data")
+            .arg(
+                Arg::new("listen-url")
+                .long("listen-url")
+                .help("url to expose the api on")
             )
         ])
         .get_matches();
@@ -175,6 +182,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("fill-missing-slots", fms)) => commands::db::fill_missing_slots(fms, config_path).await,
         Some(("create-transfer-graph", ctg)) => commands::transfer_graph::create_transfer_graph_for_tx(ctg, config_path).await,
         Some(("create-ordered-transfers-for-block", cotfb)) => commands::transfer_graph::create_ordered_transfers_for_entire_block(cotfb, config_path).await,
+        Some(("transfer-flow-api", tfa)) => commands::transfer_api::transfer_flow_api(tfa, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }
