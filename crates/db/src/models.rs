@@ -29,6 +29,17 @@ pub struct Programs {
     pub executable_data: Vec<u8>,
 }
 
+#[derive(Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable, Default, Insertable)]
+#[diesel(table_name = super::schema::token_mints)]
+pub struct TokenMints {
+    pub id: Uuid,
+    pub mint: String,
+    pub name: Option<String>,
+    pub symbol: Option<String>,
+    pub decimals: f32,
+    pub token_2022: bool,
+}
+
 #[derive(Insertable)]
 #[diesel(table_name = super::schema::blocks)]
 pub struct NewBlock {
@@ -44,4 +55,14 @@ pub struct NewIdl {
     pub begin_height: i64,
     pub end_height: Option<i64>,
     pub idl: serde_json::Value,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = super::schema::token_mints)]
+pub struct NewTokenMint {
+    pub mint: String,
+    pub name: Option<String>,
+    pub symbol: Option<String>,
+    pub decimals: f32,
+    pub token_2022: bool,
 }

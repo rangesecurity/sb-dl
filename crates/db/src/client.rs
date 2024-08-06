@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use diesel::prelude::*;
 
-use crate::models::{Blocks, Idls, NewBlock, Programs};
+use crate::models::{Blocks, Idls, NewBlock, NewTokenMint, Programs, TokenMints};
 
 #[derive(Clone, Copy)]
 pub struct Client {}
@@ -10,6 +10,12 @@ pub struct Client {}
 pub enum BlockFilter {
     Slot(i64),
     Number(i64),
+}
+
+#[derive(Clone)]
+pub enum TokenMintFilter {
+    Mint(String),
+    IsToken2022(bool),
 }
 
 impl Client {
@@ -61,6 +67,27 @@ impl Client {
                 .filter(slot.eq(Some(slot_num)))
                 .select(Blocks::as_select())
                 .load(conn)?),
+        }
+    }
+    pub fn select_token_mint(
+        self,
+        conn: &mut PgConnection,
+        filter: TokenMintFilter
+    ) -> anyhow::Result<Vec<TokenMints>> {
+        use crate::schema::token_mints::dsl::*;
+        match filter {
+            TokenMintFilter::IsToken2022(is_2022) => Ok(
+                token_mints
+                .filter(token_2022.eq(is_2022))
+                .select(TokenMints::as_select())
+                .load(conn)?
+            ),
+            TokenMintFilter::Mint(tkn_mint) => Ok(
+                token_mints
+                .filter(mint.eq(tkn_mint))
+                .select(TokenMints::as_select())
+                .load(conn)?
+            ),
         }
     }
     /// Inserts a new block
@@ -229,6 +256,79 @@ impl Client {
             }
             Ok(())
         })?;
+        Ok(())
+    }
+    pub fn insert_token_mint(
+        self,
+        conn: &mut PgConnection,
+        tkn_mint: String,
+        tkn_name: Option<String>,
+        tkn_symbol: Option<String>,
+        tkn_decimals: f32,
+        is_2022: bool
+    ) -> anyhow::Result<()> {
+        use crate::schema::token_mints::dsl::*;
+        conn.transaction::<_, anyhow::Error, _>(|conn| {
+            match token_mints
+            .filter(mint.eq(&tkn_mint))
+            .limit(1)
+            .select(TokenMints::as_select())
+            .load(conn) {
+                Ok(token_infos) => if token_infos.is_empty() {
+                    NewTokenMint {
+                        mint: tkn_mint,
+                        name: tkn_name,
+                        symbol: tkn_symbol,
+                        decimals: tkn_decimals,
+                        token_2022: is_2022
+                    }
+                    .insert_into(token_mints)
+                    .execute(conn)?;
+                } else {
+                    // token already exists
+                }
+                Err(err) => return Err(anyhow!("failed to query db {err:#?}"))
+            }
+            Ok(())
+        })?;
+        Ok(())
+    }
+    /// This is only used to update token name and symbol which cant be retrieved via the mint account
+    /// and needs to be retrieved via a secondary source (ie: token metadata program)
+    /// 
+    /// Decimals cant be changed after the mint account is created
+    pub fn update_token_mint(
+        self,
+        conn: &mut PgConnection,
+        tkn_mint: String,
+        tkn_name: Option<String>,
+        tkn_symbol: Option<String>,
+    ) -> anyhow::Result<()> {
+        use crate::schema::token_mints::dsl::*;
+        conn.transaction::<_, anyhow::Error, _>(|conn| {
+            match token_mints
+            .filter(mint.eq(&tkn_mint))
+            .limit(1)
+            .select(TokenMints::as_select())
+            .load(conn) {
+                Ok(mut token_infos) => if token_infos.is_empty() {
+                    return Err(anyhow!("token not found"))
+                } else {
+                    let mut token_info = std::mem::take(&mut token_infos[0]);
+                    token_info.name = tkn_name;
+                    token_info.symbol = tkn_symbol;
+
+
+                    diesel::update(
+                        token_mints.filter(mint.eq(&tkn_mint))
+                    )
+                    .set(token_info)
+                    .execute(conn)?;
+                }
+                Err(err) => return Err(anyhow!("failed to query db {err:#?}"))
+            }
+            Ok(())
+        })?;       
         Ok(())
     }
 }

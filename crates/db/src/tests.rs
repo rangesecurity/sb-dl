@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use client::Client;
+use client::{Client, TokenMintFilter};
 
 use crate::{migrations::run_migrations, test_utils::TestDb};
 
@@ -124,5 +124,123 @@ fn test_blocks() {
         assert_eq!(block_3, block_4);
     }
     // check that manual slot update worked
+    drop(test_db);
+}
+
+#[test]
+fn test_token_mints() {
+    let test_db = TestDb::new();
+    run_migrations(&mut test_db.conn());
+    let mut db_conn = test_db.conn();
+    let client = Client {};
+    struct MintInfo {
+        token_mint: String,
+        token_name: Option<String>,
+        token_symbol: Option<String>,
+        token_decimals: f32,
+        is_2022: bool,
+    }
+    let test_data = vec![
+        MintInfo {
+            token_mint: "mint_1".to_string(),
+            token_name: Some("mintable_token_1".to_string()),
+            token_symbol: Some("mntkn_1".to_string()),
+            token_decimals: 9_f32,
+            is_2022: false,
+        },
+        MintInfo {
+            token_mint: "mint_2".to_string(),
+            token_name: None,
+            token_symbol: None,
+            token_decimals: 6_f32,
+            is_2022: true,
+        },
+        MintInfo {
+            token_mint: "mint_3".to_string(),
+            token_name: None,
+            token_symbol: None,
+            token_decimals: 3_f32,
+            is_2022: false,
+        },
+    ];
+    for td in test_data {
+        client
+            .insert_token_mint(
+                &mut db_conn,
+                td.token_mint,
+                td.token_name,
+                td.token_symbol,
+                td.token_decimals,
+                td.is_2022,
+            )
+            .unwrap();
+    }
+    let results = client
+        .select_token_mint(&mut db_conn, TokenMintFilter::Mint("mint_1".to_string()))
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].mint, "mint_1");
+    assert_eq!(results[0].name, Some("mintable_token_1".to_string()));
+    assert_eq!(results[0].symbol, Some("mntkn_1".to_string()));
+    assert_eq!(results[0].decimals, 9_f32);
+    assert_eq!(results[0].token_2022, false);
+
+    let results = client
+        .select_token_mint(&mut db_conn, TokenMintFilter::Mint("mint_2".to_string()))
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].mint, "mint_2");
+    assert_eq!(results[0].name, None);
+    assert_eq!(results[0].symbol, None);
+    assert_eq!(results[0].decimals, 6_f32);
+    assert_eq!(results[0].token_2022, true);
+
+    let results = client
+        .select_token_mint(&mut db_conn, TokenMintFilter::Mint("mint_3".to_string()))
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].mint, "mint_3");
+    assert_eq!(results[0].name, None);
+    assert_eq!(results[0].symbol, None);
+    assert_eq!(results[0].decimals, 3_f32);
+    assert_eq!(results[0].token_2022, false);
+
+    let results = client
+        .select_token_mint(&mut db_conn, TokenMintFilter::IsToken2022(false))
+        .unwrap();
+    assert_eq!(results.len(), 2);
+    let results = client
+        .select_token_mint(&mut db_conn, TokenMintFilter::IsToken2022(true))
+        .unwrap();
+    assert_eq!(results.len(), 1);
+
+    client
+        .update_token_mint(
+            &mut db_conn,
+            "mint_2".to_string(),
+            Some("mtn_2".to_string()),
+            Some("m2".to_string()),
+        )
+        .unwrap();
+    let results = client
+        .select_token_mint(&mut db_conn, TokenMintFilter::Mint("mint_2".to_string()))
+        .unwrap();
+    assert_eq!(results[0].name, Some("mtn_2".to_string()));
+    assert_eq!(results[0].symbol, Some("m2".to_string()));
+
+    client
+        .update_token_mint(
+            &mut db_conn,
+            "mint_3".to_string(),
+            Some("mtn_3".to_string()),
+            Some("m3".to_string()),
+        )
+        .unwrap();
+    let results = client
+        .select_token_mint(&mut db_conn, TokenMintFilter::Mint("mint_3".to_string()))
+        .unwrap();
+    assert_eq!(results[0].name, Some("mtn_3".to_string()));
+    assert_eq!(results[0].symbol, Some("m3".to_string()));
+
     drop(test_db);
 }
