@@ -84,7 +84,7 @@ pub mod system {
         CreateAccount(CreateAccount),
         CreateAccountWithSeed(CreateAccountWithSeed),
         TransferWithSeed(TransferWithSeed),
-        WithdrawNonceAccount(WithdrawNonceAccount)
+        WithdrawNonceAccount(WithdrawNonceAccount),
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -165,11 +165,11 @@ pub mod system {
             )))
         } else if TRANSFER_WITH_SEED.eq(ix_type) {
             Ok(Some(SystemInstructions::TransferWithSeed(
-                serde_json::from_value(partially_decoded.info)?
+                serde_json::from_value(partially_decoded.info)?,
             )))
         } else if WITHDRAW_NONCE_ACCOUNT.eq(ix_type) {
             Ok(Some(SystemInstructions::WithdrawNonceAccount(
-                serde_json::from_value(partially_decoded.info)?
+                serde_json::from_value(partially_decoded.info)?,
             )))
         } else {
             return Ok(None);
@@ -200,7 +200,7 @@ pub mod token {
         TransferChecked(TransferChecked),
         MintToChecked(MintToChecked),
         BurnChecked(BurnChecked),
-        CloseAccount(CloseAccount)
+        CloseAccount(CloseAccount),
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -255,9 +255,9 @@ pub mod token {
         /// this is the SOL held by the token account at the time it was closed
         /// in the case of wSOL, it will include rent cost + wsol held, and is set after
         /// all instructions have been parsed
-        /// 
+        ///
         /// todo: not yet sure how to account for this
-        pub amount: Option<String>
+        pub amount: Option<String>,
     }
 
     /// # Returns

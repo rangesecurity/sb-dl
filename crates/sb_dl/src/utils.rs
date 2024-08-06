@@ -2,7 +2,9 @@ use {
     anyhow::Context,
     solana_sdk::{message::VersionedMessage, pubkey::Pubkey},
     solana_transaction_status::{
-        BlockEncodingOptions, ConfirmedBlock, EncodedTransaction, TransactionDetails, TransactionWithStatusMeta, UiConfirmedBlock, UiInstruction, UiMessage, UiParsedInstruction, UiTransactionEncoding
+        BlockEncodingOptions, ConfirmedBlock, EncodedTransaction, TransactionDetails,
+        TransactionWithStatusMeta, UiConfirmedBlock, UiInstruction, UiMessage, UiParsedInstruction,
+        UiTransactionEncoding,
     },
     std::str::FromStr,
     tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter, Layer},
@@ -40,24 +42,25 @@ pub fn process_block(
 /// To save space on indexing, exclude all vote/consensus related transactions
 pub fn filter_vote_transactions(mut block: UiConfirmedBlock) -> UiConfirmedBlock {
     if let Some(txs) = block.transactions {
-        block.transactions = Some(txs.into_iter().filter(|tx| {
-            match &tx.transaction {
-                EncodedTransaction::Json(tx) => {
-                    match &tx.message {
-                        UiMessage::Parsed(msg) => {
-                            if msg.instructions.len() == 1 && msg.account_keys.len() > 0 {
-                                match &msg.instructions[0] {
-                                    UiInstruction::Compiled(ix) => {
-                                        let pid_index = ix.program_id_index;
-                                        if let Ok(pid) = Pubkey::from_str(&msg.account_keys[pid_index as usize].pubkey) {
-                                        
-                                            if pid == solana_sdk::vote::program::id() {
-                                                return false;
+        block.transactions = Some(
+            txs.into_iter()
+                .filter(|tx| match &tx.transaction {
+                    EncodedTransaction::Json(tx) => {
+                        match &tx.message {
+                            UiMessage::Parsed(msg) => {
+                                if msg.instructions.len() == 1 && msg.account_keys.len() > 0 {
+                                    match &msg.instructions[0] {
+                                        UiInstruction::Compiled(ix) => {
+                                            let pid_index = ix.program_id_index;
+                                            if let Ok(pid) = Pubkey::from_str(
+                                                &msg.account_keys[pid_index as usize].pubkey,
+                                            ) {
+                                                if pid == solana_sdk::vote::program::id() {
+                                                    return false;
+                                                }
                                             }
                                         }
-                                    }
-                                    UiInstruction::Parsed(ix) => {
-                                        match ix {
+                                        UiInstruction::Parsed(ix) => match ix {
                                             UiParsedInstruction::PartiallyDecoded(ix) => {
                                                 if let Ok(pid) = Pubkey::from_str(&ix.program_id) {
                                                     if pid == solana_sdk::vote::program::id() {
@@ -72,30 +75,32 @@ pub fn filter_vote_transactions(mut block: UiConfirmedBlock) -> UiConfirmedBlock
                                                     }
                                                 }
                                             }
+                                        },
+                                    }
+                                }
+                            }
+                            UiMessage::Raw(msg) => {
+                                if msg.instructions.len() == 1 && msg.account_keys.len() > 0 {
+                                    let pid_index = msg.instructions[0].program_id_index;
+                                    if let Ok(pid) =
+                                        Pubkey::from_str(&msg.account_keys[pid_index as usize])
+                                    {
+                                        if pid == solana_sdk::vote::program::id() {
+                                            return false;
                                         }
                                     }
                                 }
                             }
                         }
-                        UiMessage::Raw(msg) => {
-                            if msg.instructions.len() == 1 && msg.account_keys.len() > 0 {
-                                let pid_index = msg.instructions[0].program_id_index;
-                                if let Ok(pid) = Pubkey::from_str(&msg.account_keys[pid_index as usize]) {
-                                    if pid == solana_sdk::vote::program::id() {
-                                        return false;
-                                    }
-                                }
-                            }
-                        }
+                        true
                     }
-                    true
-                }
-                _ => {
-                    log::error!("found incorrectly encoded tx");
-                    false
-                }
-            }
-        }).collect());
+                    _ => {
+                        log::error!("found incorrectly encoded tx");
+                        false
+                    }
+                })
+                .collect(),
+        );
     }
     block
 }

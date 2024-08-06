@@ -1,9 +1,10 @@
 use db::{migrations::run_migrations, new_connection};
-use sb_dl::{config::Config, services::{idl_indexer::IdlIndexer, program_indexer::ProgramIndexer}};
+use sb_dl::{
+    config::Config,
+    services::{idl_indexer::IdlIndexer, program_indexer::ProgramIndexer},
+};
 
-pub async fn index_programs(
-    config_path: &str
-) -> anyhow::Result<()> {
+pub async fn index_programs(config_path: &str) -> anyhow::Result<()> {
     let cfg = Config::load(config_path).await?;
     let p_indexer = ProgramIndexer::new(&cfg.rpc_url).await?;
     {
@@ -12,14 +13,14 @@ pub async fn index_programs(
     }
     let programs = p_indexer.get_programs().await?;
     let mut conn = new_connection(&cfg.db_url)?;
-    let client = db::client::Client{};
+    let client = db::client::Client {};
     for program in programs {
         if let Err(err) = client.insert_or_update_program(
             &mut conn,
             program.program_id.to_string(),
             program.deployed_slot as i64,
             program.executable_account.to_string(),
-            program.program_data
+            program.program_data,
         ) {
             log::error!("failed to insert program {err:#?}");
         }

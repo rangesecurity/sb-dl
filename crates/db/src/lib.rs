@@ -1,7 +1,7 @@
 use {
-    diesel::prelude::*,
-    deadpool_diesel::{Manager, Pool},
     anyhow::Result,
+    deadpool_diesel::{Manager, Pool},
+    diesel::prelude::*,
 };
 //use diesel::{Connection, PgConnection};
 pub mod client;
@@ -17,7 +17,6 @@ pub mod tests;
 pub fn new_connection(path: &str) -> anyhow::Result<PgConnection> {
     Ok(PgConnection::establish(path)?)
 }
-
 
 /// establishes a new connection pool manager to postgres
 pub fn new_connection_pool(db_url: &str) -> Result<Pool<Manager<PgConnection>>> {

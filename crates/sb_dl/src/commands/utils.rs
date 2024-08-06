@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use serde_json::Value;
 
-
 // sanitizes utf8 encoding issues which prevent converting serde_json::Value to a string
 // this is done before failed blocks are persisted to disk
 pub fn sanitize_value(value: &mut Value) {
@@ -55,7 +54,7 @@ pub async fn get_failed_blocks(dir: &str) -> anyhow::Result<HashSet<u64>> {
 }
 
 pub async fn load_failed_blocks(
-    dir: &str, 
+    dir: &str,
     blocks_tx: tokio::sync::mpsc::Sender<(u64, serde_json::Value)>,
 ) -> anyhow::Result<()> {
     use regex::Regex;
@@ -86,7 +85,6 @@ pub fn sanitize_for_postgres(value: &mut Value) {
     match value {
         Value::String(ref mut s) => {
             *s = s.replace("\u{0000}", "");
-
         }
         Value::Array(ref mut arr) => {
             for item in arr {
