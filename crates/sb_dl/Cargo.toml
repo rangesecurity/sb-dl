@@ -81,6 +81,8 @@ version = "0.7"
 version = "2"
 [dependencies.spl-token-2022]
 version = "1"
+[dependencies.mpl-token-metadata]
+version = "4"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]

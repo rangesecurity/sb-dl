@@ -68,7 +68,9 @@ async fn main() -> Result<()> {
                     Command::new("index-spl-token-mints")
                     .about("index spl-token mint accounts"),
                     Command::new("index-spl-token2022-mints")
-                    .about("index spl-token mint accounts")
+                    .about("index spl-token mint accounts"),
+                    Command::new("index-token-metadata")
+                    .about("indexes mpl token metadata accounts")
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag()),
             Command::new("new-config"),
@@ -173,6 +175,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             }
             Some(("index-spl-token-mints", _)) => commands::services::mint_indexer::index_spl_token_mints(config_path).await,
             Some(("index-spl-token2022-mints", _)) => commands::services::mint_indexer::index_spl_token2022_mints(config_path).await,
+            Some(("index-token-metadata", _)) => commands::services::metadata_indexer::index_metadata_accounts(config_path).await,
             _ => Err(anyhow!("invalid subcommand")),
         },
         _ => Err(anyhow!("invalid subcommand")),

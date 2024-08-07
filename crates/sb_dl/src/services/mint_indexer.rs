@@ -9,13 +9,6 @@ use {
     spl_token_2022::state::Mint as Mint2022,
 };
 
-#[derive(Clone)]
-pub struct ProgramInfo {
-    pub program_id: Pubkey,
-    pub executable_account: Pubkey,
-    pub program_data: Vec<u8>,
-    pub deployed_slot: u64,
-}
 pub struct MintIndexer {
     rpc: RpcClient,
 }
