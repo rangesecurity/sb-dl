@@ -60,7 +60,7 @@ impl MetadataIndexer {
                 Ok(accounts) => {
                     for (idx, account) in accounts.value.into_iter().enumerate() {
                         if let Some(account) = account {
-                            match Metadata::try_from_slice(&account.data) {
+                            match Metadata::from_bytes(&account.data) {
                                 Ok(metadata) => metadatas.push((chunk[idx].mint, metadata)),
                                 Err(err) => {
                                     log::error!(
