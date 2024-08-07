@@ -242,5 +242,8 @@ fn test_token_mints() {
     assert_eq!(results[0].name, Some("mtn_3".to_string()));
     assert_eq!(results[0].symbol, Some("m3".to_string()));
 
+    let results = client.select_token_mint(&mut db_conn, TokenMintFilter::All).unwrap();
+    assert_eq!(results.len(), 3);
+
     drop(test_db);
 }
