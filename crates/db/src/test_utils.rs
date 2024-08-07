@@ -35,6 +35,9 @@ impl TestDb {
     pub fn delete_all_tables(&self) {
         let mut conn = self.conn();
         let _ = diesel::delete(super::schema::blocks::dsl::blocks).execute(&mut conn);
+        let _ = diesel::delete(super::schema::idls::dsl::idls).execute(&mut conn);
+        let _ = diesel::delete(super::schema::programs::dsl::programs).execute(&mut conn);
+        let _ = diesel::delete(super::schema::token_mints::dsl::token_mints).execute(&mut conn);
     }
     pub fn name(&self) -> String {
         self.name.clone()
