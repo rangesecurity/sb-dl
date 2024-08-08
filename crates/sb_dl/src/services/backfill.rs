@@ -23,13 +23,9 @@ impl Backfiller {
         no_minimization: bool,
     ) -> anyhow::Result<()> {
         loop {
-            let current_height = self
-                .rpc
-                .get_block_height()
-                .await
-                .with_context(|| "failed to get block height")?;
+            let current_slot = self.rpc.get_slot_with_commitment(CommitmentConfig::finalized()).await.with_context(|| "failed to get slot height")?;
             // backfill 300 most recent blocks, over estimating blocks per second by 2x
-            for slot_height in current_height - 300..current_height {
+            for slot_height in current_slot - 300..current_slot {
                 match self
                     .rpc
                     .get_block_with_config(
