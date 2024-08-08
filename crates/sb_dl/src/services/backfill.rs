@@ -1,5 +1,5 @@
 use {
-    crate::utils::filter_vote_transactions,
+    crate::{types::BlockInfo, utils::filter_vote_transactions},
     anyhow::Context,
     solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcBlockConfig},
     solana_sdk::commitment_config::CommitmentConfig,
@@ -19,17 +19,17 @@ impl Backfiller {
     }
     pub async fn start(
         &self,
-        blocks_tx: tokio::sync::mpsc::Sender<(u64, UiConfirmedBlock)>,
+        blocks_tx: tokio::sync::mpsc::Sender<BlockInfo>,
         no_minimization: bool,
     ) -> anyhow::Result<()> {
         loop {
-            let current_height = self
+            let current_slot = self
                 .rpc
-                .get_block_height()
+                .get_slot_with_commitment(CommitmentConfig::finalized())
                 .await
-                .with_context(|| "failed to get block height")?;
+                .with_context(|| "failed to get slot height")?;
             // backfill 300 most recent blocks, over estimating blocks per second by 2x
-            for slot_height in current_height - 300..current_height {
+            for slot_height in current_slot - 300..current_slot {
                 match self
                     .rpc
                     .get_block_with_config(
@@ -55,7 +55,14 @@ impl Backfiller {
                             log::warn!("block height is None for block({slot_height}");
                             continue;
                         };
-                        if let Err(err) = blocks_tx.send((block_height, block)).await {
+                        if let Err(err) = blocks_tx
+                            .send(BlockInfo {
+                                slot: Some(slot_height),
+                                block,
+                                block_height,
+                            })
+                            .await
+                        {
                             log::error!("failed to notify block {err:#?}");
                         }
                     }
