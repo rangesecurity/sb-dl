@@ -1,5 +1,5 @@
 use {
-    crate::utils::process_block,
+    crate::{types::BlockInfo, utils::process_block},
     anyhow::{anyhow, Context, Result},
     futures::{sink::SinkExt, stream::StreamExt},
     solana_transaction_status::UiConfirmedBlock,
@@ -34,7 +34,7 @@ pub async fn new_geyser_client(
 
 pub async fn subscribe_blocks(
     mut client: GeyserGrpcClient<impl Interceptor>,
-    blocks_tx: tokio::sync::mpsc::Sender<(u64, UiConfirmedBlock)>,
+    blocks_tx: tokio::sync::mpsc::Sender<BlockInfo>,
     no_minimization: bool,
 ) -> Result<()> {
     let mut blocks: HashMap<String, SubscribeRequestFilterBlocks> = Default::default();
@@ -77,23 +77,31 @@ pub async fn subscribe_blocks(
                         log::error!("failed to send ping {err:#?}");
                     }
                 }
-                Some(UpdateOneof::Block(block)) => match create_block(block) {
-                    Ok(block) => match process_block(block, no_minimization) {
-                        Ok(block) => {
-                            if let Some(block_height) = block.block_height {
-                                if let Err(err) = blocks_tx.send((block_height, block)).await {
-                                    log::error!("failed to notify new block {err:#?}");
+                Some(UpdateOneof::Block(block)) => {
+                    let slot = block.slot;
+                    log::info!("processing block(slot={}, parent_slot={}, block_height={:?})", block.slot, block.parent_slot, block.block_height);
+                    match create_block(block) {
+                        Ok(block) => match process_block(block, no_minimization) {
+                            Ok(block) => {
+                                if let Some(block_height) = block.block_height {
+                                    if let Err(err) = blocks_tx.send(BlockInfo {
+                                        slot: Some(slot),
+                                        block,
+                                        block_height,
+                                    }).await {
+                                        log::error!("failed to notify new block {err:#?}");
+                                    }
+                                } else {
+                                    log::warn!("missing block height");
                                 }
-                            } else {
-                                log::warn!("missing block height");
                             }
-                        }
+                            Err(err) => {
+                                log::error!("failed to process block {err:#?}");
+                            }
+                        },
                         Err(err) => {
-                            log::error!("failed to process block {err:#?}");
+                            log::error!("failed to convert block {err:#?}")
                         }
-                    },
-                    Err(err) => {
-                        log::error!("failed to convert block {err:#?}")
                     }
                 },
                 Some(UpdateOneof::Pong(_)) => {}

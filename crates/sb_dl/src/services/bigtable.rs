@@ -1,5 +1,5 @@
 use {
-    crate::{config::BigTableConfig, utils::process_block},
+    crate::{config::BigTableConfig, types::BlockInfo, utils::process_block},
     anyhow::{anyhow, Context},
     bigtable_rs::{
         bigtable::{read_rows::decode_read_rows_response, BigTableConnection},
@@ -48,7 +48,7 @@ impl Downloader {
     /// `limit`: max number of slots to index, if None use latest slot as bound
     pub async fn start(
         &self,
-        blocks_tx: tokio::sync::mpsc::Sender<(u64, UiConfirmedBlock)>,
+        blocks_tx: tokio::sync::mpsc::Sender<BlockInfo>,
         already_indexed: HashSet<u64>,
         start: Option<u64>,
         limit: Option<u64>,
@@ -92,7 +92,11 @@ impl Downloader {
                         // post process the block to handle encoding and space minimization
                         match process_block(block, no_minimization) {
                             Ok(block) => {
-                                if let Err(err) = blocks_tx.send((block_height, block)).await {
+                                if let Err(err) = blocks_tx.send(BlockInfo {
+                                    block_height,
+                                    slot: Some(slot),
+                                    block,
+                                }).await {
                                     log::error!("failed to send block({slot}) {err:#?}");
                                 }
                             }

@@ -1,5 +1,5 @@
 use {
-    crate::utils::filter_vote_transactions,
+    crate::{types::BlockInfo, utils::filter_vote_transactions},
     anyhow::Context,
     solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcBlockConfig},
     solana_sdk::commitment_config::CommitmentConfig,
@@ -19,7 +19,7 @@ impl Backfiller {
     }
     pub async fn start(
         &self,
-        blocks_tx: tokio::sync::mpsc::Sender<(u64, UiConfirmedBlock)>,
+        blocks_tx: tokio::sync::mpsc::Sender<BlockInfo>,
         no_minimization: bool,
     ) -> anyhow::Result<()> {
         loop {
@@ -55,7 +55,11 @@ impl Backfiller {
                             log::warn!("block height is None for block({slot_height}");
                             continue;
                         };
-                        if let Err(err) = blocks_tx.send((block_height, block)).await {
+                        if let Err(err) = blocks_tx.send(BlockInfo {
+                            slot: Some(slot_height),
+                            block,
+                            block_height,
+                        }).await {
                             log::error!("failed to notify block {err:#?}");
                         }
                     }

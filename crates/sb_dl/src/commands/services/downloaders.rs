@@ -12,7 +12,7 @@ use {
             backfill::Backfiller,
             bigtable::Downloader,
             geyser::{new_geyser_client, subscribe_blocks},
-        },
+        }, types::BlockInfo,
     },
     solana_transaction_status::UiConfirmedBlock,
     std::collections::HashSet,
@@ -58,7 +58,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
 
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
     let (blocks_tx, blocks_rx) =
-        tokio::sync::mpsc::channel::<(u64, UiConfirmedBlock)>(limit.unwrap_or(1_000) as usize);
+        tokio::sync::mpsc::channel::<BlockInfo>(limit.unwrap_or(1_000) as usize);
 
     let sig_quit = signal(SignalKind::quit())?;
     let sig_int = signal(SignalKind::interrupt())?;
@@ -117,7 +117,7 @@ pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::R
     .await?;
 
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
-    let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<(u64, UiConfirmedBlock)>(1000);
+    let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<BlockInfo>(1000);
 
     let sig_quit = signal(SignalKind::quit())?;
     let sig_int = signal(SignalKind::interrupt())?;
@@ -157,7 +157,7 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
     let no_minimization = matches.get_flag("no-minimization");
 
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
-    let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<(u64, UiConfirmedBlock)>(1000);
+    let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<BlockInfo>(1000);
 
     let sig_quit = signal(SignalKind::quit())?;
     let sig_int = signal(SignalKind::interrupt())?;
@@ -206,7 +206,7 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
         let failed_blocks_dir = failed_blocks_dir.clone();
         tokio::task::spawn(async move {
             let client = db::client::Client {};
-            while let Some((block_number, mut block)) = blocks_rx.recv().await {
+            while let Some((slot_number, mut block)) = blocks_rx.recv().await {
                 sanitize_for_postgres(&mut block);
 
                 // this is a bit clunky, however in order to get the correct slot number
@@ -216,31 +216,34 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
                 let block: UiConfirmedBlock = match serde_json::from_value(block) {
                     Ok(block) => block,
                     Err(err) => {
-                        log::error!("failed to deserialize block({block_number}) {err:#?}");
+                        log::error!("failed to deserialize block({slot_number}) {err:#?}");
                         continue;
                     }
                 };
-
-                let slot = block.parent_slot + 1;
-
+                let block_height = if let Some(height) = block.block_height {
+                    height
+                } else {
+                    log::warn!("missing height for block(slot={slot_number})");
+                    continue;
+                };
                 let block = match serde_json::to_value(block) {
                     Ok(block) => block,
                     Err(err) => {
-                        log::error!("failed to serialize block{block_number}) {err:#?}");
+                        log::error!("failed to serialize block{slot_number}) {err:#?}");
                         continue;
                     }
                 };
                 if let Err(err) =
-                    client.insert_block(&mut conn, block_number as i64, Some(slot as i64), block)
+                    client.insert_block(&mut conn, block_height as i64, Some(slot_number as i64), block)
                 {
-                    log::error!("failed to insert block({slot}) {err:#?}");
+                    log::error!("failed to insert block({slot_number}) {err:#?}");
                 } else {
-                    log::info!("inserted block({slot})");
+                    log::info!("inserted block({slot_number})");
                     if let Err(err) =
-                        tokio::fs::remove_file(format!("{failed_blocks_dir}/block_{slot}.json"))
+                        tokio::fs::remove_file(format!("{failed_blocks_dir}/block_{slot_number}.json"))
                             .await
                     {
-                        log::error!("failed to remove persisted block({slot}) {err:#?}");
+                        log::error!("failed to remove persisted block({slot_number}) {err:#?}");
                     }
                 }
             }
@@ -260,20 +263,18 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
 async fn block_persistence_loop(
     mut conn: PgConnection,
     failed_blocks_dir: String,
-    mut blocks_rx: tokio::sync::mpsc::Receiver<(u64, UiConfirmedBlock)>,
+    mut blocks_rx: tokio::sync::mpsc::Receiver<BlockInfo>,
 ) {
     let client = db::client::Client {};
 
-    while let Some((block_number, block)) = blocks_rx.recv().await {
-        // the block object we receive doesn't contain the slot number
-        //
-        // solana and solscan explorers use the slot number when indexing
-        // the block at which a transaction is included in
-        //
-        // because of this we need to derive the slot number by taking the parent_slot of a block
-        // and incrementing it by 1 to match the information displayed by existing explorers
-
-        let slot = block.parent_slot + 1;
+    while let Some(block_info) = blocks_rx.recv().await {
+        // we cant rely on parentSlot + 1, as some slots may be skipped
+        let slot = if let Some(slot) = block_info.slot {
+            slot
+        } else {
+            log::warn!("slot is None for block(height={})", block_info.block_height);
+            continue;
+        };
 
         // uncomment to display logs which can be used to verify the above statement
         //let sample_tx = block.transactions.clone().and_then(|vec| vec.into_iter().next());
@@ -290,12 +291,12 @@ async fn block_persistence_loop(
         //    "block(slot={slot}, height={block_number}, parent_slot={}, block_hash={}, sample_tx_hash={:?})",
         //    block.parent_slot, block.blockhash, sample_tx_hash
         //);
-        match serde_json::to_value(block) {
+        match serde_json::to_value(block_info.block) {
             Ok(mut block) => {
                 if client
                     .insert_block(
                         &mut conn,
-                        block_number as i64,
+                        block_info.block_height as i64,
                         Some(slot as i64),
                         block.clone(),
                     )
@@ -309,7 +310,7 @@ async fn block_persistence_loop(
                     // try to reinsert block
                     if let Err(err) = client.insert_block(
                         &mut conn,
-                        block_number as i64,
+                        block_info.block_height as i64,
                         Some(slot as i64),
                         block.clone(),
                     ) {
