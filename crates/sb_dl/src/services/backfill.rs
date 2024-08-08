@@ -55,11 +55,14 @@ impl Backfiller {
                             log::warn!("block height is None for block({slot_height}");
                             continue;
                         };
-                        if let Err(err) = blocks_tx.send(BlockInfo {
-                            slot: Some(slot_height),
-                            block,
-                            block_height,
-                        }).await {
+                        if let Err(err) = blocks_tx
+                            .send(BlockInfo {
+                                slot: Some(slot_height),
+                                block,
+                                block_height,
+                            })
+                            .await
+                        {
                             log::error!("failed to notify block {err:#?}");
                         }
                     }

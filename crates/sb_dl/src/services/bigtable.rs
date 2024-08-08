@@ -92,11 +92,14 @@ impl Downloader {
                         // post process the block to handle encoding and space minimization
                         match process_block(block, no_minimization) {
                             Ok(block) => {
-                                if let Err(err) = blocks_tx.send(BlockInfo {
-                                    block_height,
-                                    slot: Some(slot),
-                                    block,
-                                }).await {
+                                if let Err(err) = blocks_tx
+                                    .send(BlockInfo {
+                                        block_height,
+                                        slot: Some(slot),
+                                        block,
+                                    })
+                                    .await
+                                {
                                     log::error!("failed to send block({slot}) {err:#?}");
                                 }
                             }

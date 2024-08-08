@@ -12,7 +12,8 @@ use {
             backfill::Backfiller,
             bigtable::Downloader,
             geyser::{new_geyser_client, subscribe_blocks},
-        }, types::BlockInfo,
+        },
+        types::BlockInfo,
     },
     solana_transaction_status::UiConfirmedBlock,
     std::collections::HashSet,
@@ -233,15 +234,19 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
                         continue;
                     }
                 };
-                if let Err(err) =
-                    client.insert_block(&mut conn, block_height as i64, Some(slot_number as i64), block)
-                {
+                if let Err(err) = client.insert_block(
+                    &mut conn,
+                    block_height as i64,
+                    Some(slot_number as i64),
+                    block,
+                ) {
                     log::error!("failed to insert block({slot_number}) {err:#?}");
                 } else {
                     log::info!("inserted block({slot_number})");
-                    if let Err(err) =
-                        tokio::fs::remove_file(format!("{failed_blocks_dir}/block_{slot_number}.json"))
-                            .await
+                    if let Err(err) = tokio::fs::remove_file(format!(
+                        "{failed_blocks_dir}/block_{slot_number}.json"
+                    ))
+                    .await
                     {
                         log::error!("failed to remove persisted block({slot_number}) {err:#?}");
                     }

@@ -79,16 +79,18 @@ pub async fn subscribe_blocks(
                 }
                 Some(UpdateOneof::Block(block)) => {
                     let slot = block.slot;
-                    log::info!("processing block(slot={}, parent_slot={}, block_height={:?})", block.slot, block.parent_slot, block.block_height);
                     match create_block(block) {
                         Ok(block) => match process_block(block, no_minimization) {
                             Ok(block) => {
                                 if let Some(block_height) = block.block_height {
-                                    if let Err(err) = blocks_tx.send(BlockInfo {
-                                        slot: Some(slot),
-                                        block,
-                                        block_height,
-                                    }).await {
+                                    if let Err(err) = blocks_tx
+                                        .send(BlockInfo {
+                                            slot: Some(slot),
+                                            block,
+                                            block_height,
+                                        })
+                                        .await
+                                    {
                                         log::error!("failed to notify new block {err:#?}");
                                     }
                                 } else {
@@ -103,7 +105,7 @@ pub async fn subscribe_blocks(
                             log::error!("failed to convert block {err:#?}")
                         }
                     }
-                },
+                }
                 Some(UpdateOneof::Pong(_)) => {}
                 Some(msg_one_of) => {
                     log::warn!("unsupported message received {msg_one_of:#?}");
