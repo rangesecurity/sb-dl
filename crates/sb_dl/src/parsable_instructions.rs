@@ -200,7 +200,8 @@ pub mod token {
         TransferChecked(TransferChecked),
         MintToChecked(MintToChecked),
         BurnChecked(BurnChecked),
-        CloseAccount(CloseAccount),
+        // temporarily omit instruction until account closure is fully supported
+        //CloseAccount(CloseAccount),
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -293,11 +294,11 @@ pub mod token {
             Ok(Some(TokenInstructions::BurnChecked(
                 serde_json::from_value(partially_decoded.info)?,
             )))
-        } else if CLOSE_ACCOUNT.eq(ix_type) {
+        } /*else if CLOSE_ACCOUNT.eq(ix_type) {
             Ok(Some(TokenInstructions::CloseAccount(
                 serde_json::from_value(partially_decoded.info)?,
             )))
-        } else {
+        } */else {
             return Ok(None);
         }
     }

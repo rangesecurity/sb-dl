@@ -35,6 +35,12 @@
         dest: "/etc/systemd/system/backfiller.service"
         mode: 0755
 
+    - name: Ship transfer flow api service to server
+      template:
+        src: "transfer_flow_api.service.j2"
+        dest: "/etc/systemd/system/transfer_flow_api.service"
+        mode: 0755
+
     - name: Configuring geyser stream service
       service:
         name: geyser_stream
@@ -52,6 +58,13 @@
     - name: Configuring backfiller service
       service:
         name: backfiller
+        state: restarted
+        enabled: true
+        daemon_reload: true
+
+    - name: Configuring transfer flow api service
+      service:
+        name: transfer_flow_api
         state: restarted
         enabled: true
         daemon_reload: true
