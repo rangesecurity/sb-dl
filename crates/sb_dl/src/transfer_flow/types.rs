@@ -120,6 +120,7 @@ impl From<DecodedInstruction> for Transfer {
                     mint: tx.mint,
                     amount: tx.token_amount.amount,
                 },
+                /* temporarily omit until account closure is fully supported
                 TokenInstructions::CloseAccount(tx) => Transfer {
                     // should we use owner here instead?
                     sender: tx.account,
@@ -129,7 +130,7 @@ impl From<DecodedInstruction> for Transfer {
                     // todo: need to figure out the way to handle this when the token account is for wsol
                     // for non wsol accounts this will just be the rent
                     amount: tx.amount.unwrap_or_default(),
-                },
+                },*/
             },
         }
     }
