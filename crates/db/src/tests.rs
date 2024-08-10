@@ -166,5 +166,8 @@ fn test_update_slot() {
         assert_eq!(block.number, i);
         assert_eq!(block.slot, Some(i+1000));
     }
+    let block = &client.select_block(&mut db_conn, BlockFilter::FirstBlock).unwrap()[0];
+    assert_eq!(block.number, 100);
+
     drop(test_db);
 }

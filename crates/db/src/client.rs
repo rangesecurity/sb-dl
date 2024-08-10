@@ -8,8 +8,13 @@ pub struct Client {}
 
 #[derive(Clone, Copy)]
 pub enum BlockFilter {
+    /// filters for block based on slot number
     Slot(i64),
+    /// filters for block based on block number
     Number(i64),
+    /// returns the oldest block we have based on block number
+    FirstBlock,
+    /// return all blocks
     All,
 }
 
@@ -62,7 +67,12 @@ impl Client {
                 .filter(slot.eq(Some(slot_num)))
                 .select(Blocks::as_select())
                 .load(conn)?),
-            BlockFilter::All => Ok(blocks.select(Blocks::as_select()).load(conn)?)
+            BlockFilter::FirstBlock => Ok(blocks
+                .order(number.asc())
+                .limit(1)
+                .select(Blocks::as_select())
+                .load(conn)?),
+            BlockFilter::All => Ok(blocks.select(Blocks::as_select()).load(conn)?),
         }
     }
     /// Inserts a new block
@@ -241,22 +251,28 @@ impl Client {
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
         conn.transaction::<_, anyhow::Error, _>(|conn| {
-            match blocks.filter(
-                number.eq(&block_number)
-            )
-            .select(Blocks::as_select())
-            .limit(1)
-            .load(conn) {
-                Ok(mut block_infos) => if block_infos.is_empty() {
-                    return Ok(());
-                } else {
-                    let mut block = std::mem::take(&mut block_infos[0]);
-                    block.slot = Some(slot_number);
-                    diesel::update(blocks.filter(id.eq(block.id)))
-                    .set(block)
-                    .execute(conn)?;
+            match blocks
+                .filter(number.eq(&block_number))
+                .select(Blocks::as_select())
+                .limit(1)
+                .load(conn)
+            {
+                Ok(mut block_infos) => {
+                    if block_infos.is_empty() {
+                        return Ok(());
+                    } else {
+                        let mut block = std::mem::take(&mut block_infos[0]);
+                        block.slot = Some(slot_number);
+                        diesel::update(blocks.filter(id.eq(block.id)))
+                            .set(block)
+                            .execute(conn)?;
+                    }
                 }
-                Err(err) => return Err(anyhow!("failed to check for block({block_number}) {err:#?}"))
+                Err(err) => {
+                    return Err(anyhow!(
+                        "failed to check for block({block_number}) {err:#?}"
+                    ))
+                }
             }
             Ok(())
         })?;
