@@ -10,6 +10,7 @@ pub struct Client {}
 pub enum BlockFilter {
     Slot(i64),
     Number(i64),
+    All,
 }
 
 impl Client {
@@ -61,6 +62,7 @@ impl Client {
                 .filter(slot.eq(Some(slot_num)))
                 .select(Blocks::as_select())
                 .load(conn)?),
+            BlockFilter::All => Ok(blocks.select(Blocks::as_select()).load(conn)?)
         }
     }
     /// Inserts a new block
@@ -226,6 +228,35 @@ impl Client {
                     // program already exists
                 }
                 Err(err) => return Err(anyhow!("failed to query db {err:#?}")),
+            }
+            Ok(())
+        })?;
+        Ok(())
+    }
+    pub fn update_slot(
+        self,
+        conn: &mut PgConnection,
+        block_number: i64,
+        slot_number: i64,
+    ) -> anyhow::Result<()> {
+        use crate::schema::blocks::dsl::*;
+        conn.transaction::<_, anyhow::Error, _>(|conn| {
+            match blocks.filter(
+                number.eq(&block_number)
+            )
+            .select(Blocks::as_select())
+            .limit(1)
+            .load(conn) {
+                Ok(mut block_infos) => if block_infos.is_empty() {
+                    return Ok(());
+                } else {
+                    let mut block = std::mem::take(&mut block_infos[0]);
+                    block.slot = Some(slot_number);
+                    diesel::update(blocks.filter(id.eq(block.id)))
+                    .set(block)
+                    .execute(conn)?;
+                }
+                Err(err) => return Err(anyhow!("failed to check for block({block_number}) {err:#?}"))
             }
             Ok(())
         })?;

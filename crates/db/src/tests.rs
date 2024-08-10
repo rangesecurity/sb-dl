@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use client::Client;
+use client::{BlockFilter, Client};
 
 use crate::{migrations::run_migrations, test_utils::TestDb};
 
@@ -124,5 +124,47 @@ fn test_blocks() {
         assert_eq!(block_3, block_4);
     }
     // check that manual slot update worked
+    drop(test_db);
+}
+
+#[test]
+fn test_update_slot() {
+    let test_db = TestDb::new();
+    run_migrations(&mut test_db.conn());
+    let mut db_conn = test_db.conn();
+    let client = Client {};
+    for i in 100..300 {
+        client
+            .insert_block(
+                &mut db_conn,
+                i,
+                None,
+                serde_json::json!({
+                    "a": i.to_string()
+                }),
+            )
+            .unwrap();
+    }
+    let got_blocks: HashSet<i64> = client.select_block(&mut db_conn, BlockFilter::All).unwrap().into_iter().map(|block| block.number).collect();
+    assert_eq!(
+        got_blocks,
+        (100..300).collect::<HashSet<i64>>()
+    );
+    for i in 100..300 {
+        client.update_slot(
+            &mut db_conn,
+            i,
+            i+1000
+        ).unwrap();
+        let block = &client.select_block(&mut db_conn, BlockFilter::Slot(i+1000)).unwrap()[0];
+        assert_eq!(
+            block.data,
+            serde_json::json!({
+                "a": i.to_string()
+            })
+        );
+        assert_eq!(block.number, i);
+        assert_eq!(block.slot, Some(i+1000));
+    }
     drop(test_db);
 }
