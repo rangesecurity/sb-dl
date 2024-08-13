@@ -1,9 +1,11 @@
-use anyhow::anyhow;
-use clap::ArgMatches;
-use db::{client::BlockFilter, migrations::run_migrations};
-use sb_dl::config::Config;
-use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
-use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
+use {
+    anyhow::{anyhow, Context},
+    clap::ArgMatches,
+    db::{client::{BlockFilter, Client}, migrations::run_migrations},
+    sb_dl::config::Config,
+    solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig},
+    solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding},
+};
 
 pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let limit = matches.get_one::<i64>("limit").unwrap();
@@ -112,6 +114,7 @@ pub async fn repair_invalid_slots(config_path: &str) -> anyhow::Result<()> {
         block_number += 1;
     }
 }
+
 
 /// returns the slot for the given block, along with the tx hash used to determine this
 async fn get_slot_for_block(

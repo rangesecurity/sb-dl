@@ -65,12 +65,25 @@ async fn main() -> Result<()> {
                                 .long("listen-url")
                                 .help("url to expose the api on"),
                         ),
-                    Command::new("index-spl-token-mints")
-                    .about("index spl-token mint accounts"),
+                    Command::new("index-spl-token-mints").about("index spl-token mint accounts"),
                     Command::new("index-spl-token2022-mints")
-                    .about("index spl-token mint accounts"),
+                        .about("index spl-token mint accounts"),
                     Command::new("index-token-metadata")
-                    .about("indexes mpl token metadata accounts")
+                        .about("indexes mpl token metadata accounts"),
+                ]),
+            Command::new("db")
+                .about("database management commands")
+                .subcommands(vec![
+                    Command::new("fill-missing-slots")
+                        .about("fill missing slot information")
+                        .arg(
+                            Arg::new("limit")
+                                .long("limit")
+                                .help("number of blocks to fill at once")
+                                .value_parser(clap::value_parser!(i64)),
+                        ),
+                    Command::new("repair-invalid-slots")
+                        .about("repair database entries with invalid slot numbering"),
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag()),
             Command::new("new-config"),
@@ -86,14 +99,6 @@ async fn main() -> Result<()> {
                     Arg::new("program-id")
                         .long("program-id")
                         .help("program to associate this idl with"),
-                ),
-            Command::new("fill-missing-slots")
-                .about("fill missing slot information")
-                .arg(
-                    Arg::new("limit")
-                        .long("limit")
-                        .help("number of blocks to fill at once")
-                        .value_parser(clap::value_parser!(i64)),
                 ),
             Command::new("create-transfer-graph-for-tx")
                 .about("generate transfer graph for a single tx")
@@ -116,8 +121,31 @@ async fn main() -> Result<()> {
                         .help("slot number to fetch tx from")
                         .value_parser(clap::value_parser!(i64)),
                 ),
-            Command::new("repair-invalid-slots")
-                .about("repair database entries with invalid slot numbering"),
+            Command::new("manual-mint-import")
+            .about("manual import a token mint")
+            .arg(
+                Arg::new("mint")
+                .long("mint")
+                .help("token mint address")
+            )
+            .arg(
+                Arg::new("mint-name")
+                .long("mint-name")
+                .help("token mint name")
+            )
+            .arg(
+                Arg::new("mint-symbol")
+                .long("mint-symbol")
+                .help("token mint symbol")
+            )
+            .arg(
+                Arg::new("is-token-2022")
+                .long("is-token-2022")
+                .help("if the mint is owned by the token 2022 program")
+                .action(clap::ArgAction::SetTrue)
+                .default_value("false")
+                .required(false)
+            )
         ])
         .get_matches();
 
@@ -146,9 +174,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("manual-idl-import", mii)) => {
             commands::services::idl_indexer::manual_idl_import(mii, config_path).await
         }
-        Some(("fill-missing-slots", fms)) => {
-            commands::db::fill_missing_slots(fms, config_path).await
-        }
+
         Some(("create-transfer-graph", ctg)) => {
             commands::transfer_graph::create_transfer_graph_for_tx(ctg, config_path).await
         }
@@ -156,7 +182,12 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             commands::transfer_graph::create_ordered_transfers_for_entire_block(cotfb, config_path)
                 .await
         }
-        Some(("repair-invalid-slots", _)) => commands::db::repair_invalid_slots(config_path).await,
+        Some(("manual-mint-import", mmi)) => {
+            commands::services::mint_indexer::manual_mint_import(
+                mmi,
+                config_path
+            ).await
+        }
         Some(("services", s)) => match s.subcommand() {
             Some(("bigtable-downloader", bd)) => {
                 commands::services::downloaders::bigtable_downloader(bd, config_path).await
@@ -176,11 +207,24 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             Some(("transfer-flow-api", tfa)) => {
                 commands::services::transfer_api::transfer_flow_api(tfa, config_path).await
             }
-            Some(("index-spl-token-mints", _)) => commands::services::mint_indexer::index_spl_token_mints(config_path).await,
-            Some(("index-spl-token2022-mints", _)) => commands::services::mint_indexer::index_spl_token2022_mints(config_path).await,
-            Some(("index-token-metadata", _)) => commands::services::metadata_indexer::index_metadata_accounts(config_path).await,
+            Some(("index-spl-token-mints", _)) => {
+                commands::services::mint_indexer::index_spl_token_mints(config_path).await
+            }
+            Some(("index-spl-token2022-mints", _)) => {
+                commands::services::mint_indexer::index_spl_token2022_mints(config_path).await
+            }
+            Some(("index-token-metadata", _)) => {
+                commands::services::metadata_indexer::index_metadata_accounts(config_path).await
+            }
             _ => Err(anyhow!("invalid subcommand")),
         },
+        Some(("db", d)) => match d.subcommand() {
+            Some(("fill-missing-slots", fms)) => {
+                commands::db::fill_missing_slots(fms, config_path).await
+            },
+            Some(("repair-invalid-slots", _)) => commands::db::repair_invalid_slots(config_path).await,
+            _ => Err(anyhow!("invalid subcommand"))
+        }
         _ => Err(anyhow!("invalid subcommand")),
     }
 }

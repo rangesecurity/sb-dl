@@ -1,5 +1,10 @@
 use {
-    anyhow::{Context, Result}, db::{client::Client, migrations::run_migrations, new_connection}, sb_dl::{config::Config, services::mint_indexer::MintIndexer}
+    anyhow::{Context, Result}, db::{client::Client, migrations::run_migrations, new_connection}, sb_dl::{config::Config, services::mint_indexer::MintIndexer},
+    solana_account_decoder::UiAccountEncoding,
+    solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::{RpcAccountInfoConfig, RpcTransactionConfig}},
+    solana_program::program_pack::Pack,
+    solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding},
+
 };
 
 pub async fn index_spl_token_mints(
@@ -50,4 +55,48 @@ pub async fn index_spl_token2022_mints(
 
 
     Ok(())
+}
+
+pub async fn manual_mint_import(
+    matches: &clap::ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let mint = matches.get_one::<String>("mint").unwrap();
+    let mint_name = matches.get_one::<String>("mint-name").unwrap();
+    let mint_symbol = matches.get_one::<String>("mint-symbol").unwrap();
+
+    let is_token_2022 = matches.get_flag("is-token-2022");
+    let cfg = Config::load(config_path).await?;
+    let rpc = RpcClient::new(cfg.rpc_url.clone());
+    let mut conn = db::new_connection(&cfg.db_url)?;
+
+    run_migrations(&mut conn);
+
+    let token_mint_data = rpc.get_account_with_config(
+        &mint.parse()?,
+        RpcAccountInfoConfig {
+            encoding: Some(UiAccountEncoding::Base64),
+            ..Default::default()
+        }
+    ).await?.value.with_context(|| "account is None")?.data;
+
+    let decimals = if is_token_2022 {
+        spl_token_2022::state::Mint::unpack(&token_mint_data)?.decimals
+    }  else {
+        spl_token::state::Mint::unpack(&token_mint_data)?.decimals
+    };
+
+    let client = Client{};
+
+    client.insert_token_mint(
+        &mut conn,
+        mint.clone(),
+        Some(mint_name.clone()),
+        Some(mint_symbol.clone()),
+        decimals as f32,
+        is_token_2022
+    )?;
+
+    Ok(())
+    
 }
