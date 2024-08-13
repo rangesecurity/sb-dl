@@ -98,13 +98,7 @@ pub async fn repair_invalid_slots(config_path: &str) -> anyhow::Result<()> {
 
         if let Some(stored_slot) = block.slot {
             if stored_slot == slot as i64 {
-                // if the slot in the database entry is equal to the slot from a tx in the block
-                // we no longer need to repair any data since all additional blocks
-                // were indexed after correct slot calculation was added
-                log::warn!(
-                    "stored_slot({stored_slot}) == calculated_slot({slot}) no more repairs needed"
-                );
-                break;
+                continue;
             }
         }
 
