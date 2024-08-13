@@ -1,0 +1,14 @@
+[Unit]
+Description=transfer flow api service
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ app_root }}/sb_dl --log-file {{ app_root }}/logs/sb_dl_transfer_flow_api.log --config {{ app_root }}/config.yaml services transfer-flow-api --listen-url 0.0.0.0:8081
+
+# Restart every >2 seconds to avoid StartLimitInterval failure
+RestartSec=30
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

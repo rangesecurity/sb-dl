@@ -116,6 +116,8 @@ async fn main() -> Result<()> {
                         .help("slot number to fetch tx from")
                         .value_parser(clap::value_parser!(i64)),
                 ),
+            Command::new("repair-invalid-slots")
+                .about("repair database entries with invalid slot numbering"),
         ])
         .get_matches();
 
@@ -154,6 +156,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             commands::transfer_graph::create_ordered_transfers_for_entire_block(cotfb, config_path)
                 .await
         }
+        Some(("repair-invalid-slots", _)) => commands::db::repair_invalid_slots(config_path).await,
         Some(("services", s)) => match s.subcommand() {
             Some(("bigtable-downloader", bd)) => {
                 commands::services::downloaders::bigtable_downloader(bd, config_path).await

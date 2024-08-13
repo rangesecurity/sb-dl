@@ -83,6 +83,8 @@ version = "2"
 version = "1"
 [dependencies.mpl-token-metadata]
 version = "4"
+[dependencies.chrono]
+version = "0.4"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]

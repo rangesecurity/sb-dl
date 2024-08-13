@@ -14,6 +14,7 @@ use {
     serde::{Deserialize, Serialize},
     solana_transaction_status::UiConfirmedBlock,
     std::sync::Arc,
+    chrono::prelude::*,
 };
 #[derive(Clone)]
 pub struct State {
@@ -48,7 +49,7 @@ async fn ordered_transfers_for_block(
             match pool.lock() {
                 Ok(mut db_conn) => {
                     let client = db::client::Client {};
-                    match client.select_block(&mut db_conn, BlockFilter::Slot(number)) {
+                    match client.select_block(&mut db_conn, BlockFilter::Number(number)) {
                         Ok(mut blocks) => {
                             if blocks.is_empty() {
                                 return (
@@ -75,13 +76,19 @@ async fn ordered_transfers_for_block(
                                             .into_response()
                                     }
                                 };
-
+                                let time = if let Some(block_time) = block.block_time {
+                                    DateTime::from_timestamp(block_time, 0)
+                                } else {
+                                    None
+                                };
                                 match create_ordered_transfer_for_block(block) {
                                     Ok(ordered_transfers) => {
                                         return (
                                             StatusCode::OK,
                                             Json(OrderedTransfersResponse {
-                                                transfers: ordered_transfers
+                                                transfers: ordered_transfers,
+                                                slot: blocks[0].slot,
+                                                time
                                             })
                                         ).into_response()
                                     }
@@ -131,6 +138,12 @@ async fn ordered_transfers_for_block(
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OrderedTransfersResponse {
     pub transfers: Vec<OrderedTransfers>,
+    /// eventually remove Option<_> when historical  data has been corrected
+    pub slot: Option<i64>,
+    /// the block_time field in UiConfirmedBlock has an Option<_> type
+    /// so its possible older values do not contain that field
+    /// in which case we will set this time to None
+    pub time: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
