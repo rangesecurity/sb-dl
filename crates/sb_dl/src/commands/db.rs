@@ -15,45 +15,51 @@ pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyh
     run_migrations(&mut conn);
 
     let client = db::client::Client {};
-
-    let mut blocks = client.slot_is_null(&mut conn, *limit)?;
-    for block in blocks.iter_mut() {
-        let block_data: UiConfirmedBlock = serde_json::from_value(std::mem::take(&mut block.data))?;
-
-        let (slot, sample_tx_hash) = match get_slot_for_block(&block_data, &rpc).await {
-            Ok(Some(slot)) => slot,
-            Ok(None) => {
-                log::warn!("failed to find slot for block({})", block.number);
+    loop {
+        let mut blocks = client.slot_is_null(&mut conn, *limit)?;
+        if blocks.is_empty() {
+            // no more blocks to repair
+            break;
+        }
+        for block in blocks.iter_mut() {
+            let block_data: UiConfirmedBlock = serde_json::from_value(std::mem::take(&mut block.data))?;
+    
+            let (slot, sample_tx_hash) = match get_slot_for_block(&block_data, &rpc).await {
+                Ok(Some(slot)) => slot,
+                Ok(None) => {
+                    log::warn!("failed to find slot for block({})", block.number);
+                    continue;
+                }
+                Err(err) => {
+                    log::error!("failed to find slot for block({}) {err:#?}", block.number);
+                    continue;
+                }
+            };
+            let new_block_number = if let Some(block_height) = block_data.block_height {
+                block_height
+            } else {
+                log::warn!(
+                    "found missing block_height(slot={slot}, block.number={})",
+                    block.number
+                );
                 continue;
-            }
-            Err(err) => {
-                log::error!("failed to find slot for block({}) {err:#?}", block.number);
-                continue;
-            }
-        };
-        let new_block_number = if let Some(block_height) = block_data.block_height {
-            block_height
-        } else {
-            log::warn!(
-                "found missing block_height(slot={slot}, block.number={})",
-                block.number
+            };
+            log::info!(
+                "block(slot={slot}, new_block_number={new_block_number} block.height={:?}, block.number={}, parent_slot={}, block_hash={}, sample_tx_hash={sample_tx_hash})",
+                block_data.block_height,
+                block.number,
+                block_data.parent_slot,
+                block_data.blockhash,
             );
-            continue;
-        };
-        log::info!(
-            "block(slot={slot}, new_block_number={new_block_number} block.height={:?}, block.number={}, parent_slot={}, block_hash={}, sample_tx_hash={sample_tx_hash})",
-            block_data.block_height,
-            block.number,
-            block_data.parent_slot,
-            block_data.blockhash,
-        );
-        client.update_block_slot(
-            &mut conn,
-            block.number,
-            new_block_number as i64,
-            slot as i64,
-        )?;
+            client.update_block_slot(
+                &mut conn,
+                block.number,
+                new_block_number as i64,
+                slot as i64,
+            )?;
+        }
     }
+
 
     Ok(())
 }
