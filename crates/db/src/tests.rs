@@ -47,7 +47,22 @@ fn test_blocks() {
 
     // update slot number for blocks which are missing it
     for i in 200..300 {
-        client.update_block_slot(&mut db_conn, i, i, i + 1).unwrap();
+        let block = client.select_block(
+            &mut db_conn, 
+            BlockFilter::Number(i)
+        ).unwrap();
+        client.update_block_slot(
+            &mut db_conn,
+            block[0].id,
+            i,
+            i + 1,
+        ).unwrap();
+        let block2 = client.select_block(&mut db_conn, BlockFilter::Number(i)).unwrap();
+        assert_eq!(block2[0].number, block[0].number);
+        assert_eq!(block2[0].slot, Some(i+1));
+        assert_ne!(block2[0].slot, block[0].slot);
+        assert_eq!(block2[0].data, block[0].data);
+        //client.update_block_slot(&mut db_conn, i, i, i + 1).unwrap();
     }
     let indexed_blocks: HashSet<i64> = client
         .indexed_blocks(&mut db_conn)
@@ -79,7 +94,7 @@ fn test_blocks() {
         assert_eq!(block_1, block_2);
         // now update the block number
         client
-            .update_block_slot(&mut db_conn, i, i + 1000, i)
+            .update_block_slot(&mut db_conn, block_1[0].id, i + 1000, i)
             .unwrap();
         let block_3 = client
             .select_block(&mut db_conn, client::BlockFilter::Slot(i))
@@ -88,6 +103,7 @@ fn test_blocks() {
             .select_block(&mut db_conn, client::BlockFilter::Number(i + 1000))
             .unwrap();
         assert_eq!(block_3, block_4);
+        assert_eq!(block_1[0].data, block_3[0].data);
     }
 
     // test the edge case where block_number == slot_number and slot_number is null
@@ -113,7 +129,7 @@ fn test_blocks() {
         assert!(block_2[0].slot.is_none());
         // now update the block number
         client
-            .update_block_slot(&mut db_conn, i, i + 1000, i)
+            .update_block_slot(&mut db_conn, block_2[0].id, i + 1000, i)
             .unwrap();
         let block_3 = client
             .select_block(&mut db_conn, client::BlockFilter::Slot(i))
