@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context};
 use diesel::prelude::*;
+use uuid::Uuid;
 
 use crate::models::{Blocks, Idls, NewBlock, Programs};
 
@@ -133,42 +134,14 @@ impl Client {
     pub fn update_block_slot(
         self,
         conn: &mut PgConnection,
-        old_block_number: i64,
+        block_id: Uuid,
         new_block_number: i64,
         slot_number: i64,
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
-        conn.transaction::<_, anyhow::Error, _>(|conn| {
-            match blocks
-                .filter(
-                    number
-                        .eq(&old_block_number)
-                )
-                .select(Blocks::as_select())
-                .limit(1)
-                .load(conn)
-            {
-                Ok(mut block_infos) => {
-                    if block_infos.is_empty() {
-                        return Err(anyhow!("block({old_block_number})"));
-                    } else {
-                        let mut block = std::mem::take(&mut block_infos[0]);
-                        block.slot = Some(slot_number);
-                        block.number = new_block_number;
-
-                        diesel::update(blocks.filter(id.eq(block.id)))
-                            .set(block)
-                            .execute(conn)?;
-                    }
-                }
-                Err(err) => {
-                    return Err(anyhow!(
-                        "failed to check for block({old_block_number}) {err:#?}"
-                    ))
-                }
-            }
-            Ok(())
-        })?;
+        diesel::update(blocks.filter(id.eq(block_id)))
+            .set((slot.eq(slot_number), number.eq(new_block_number)))
+            .execute(conn)?;
         Ok(())
     }
     pub fn insert_or_update_idl(
