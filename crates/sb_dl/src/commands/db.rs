@@ -111,7 +111,6 @@ pub async fn repair_invalid_slots(config_path: &str) -> anyhow::Result<()> {
         // increment block_number to repair the next available block
         block_number += 1;
     }
-    Ok(())
 }
 
 /// returns the slot for the given block, along with the tx hash used to determine this
