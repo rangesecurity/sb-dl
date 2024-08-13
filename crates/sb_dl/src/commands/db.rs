@@ -16,7 +16,7 @@ pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyh
 
     let client = db::client::Client {};
 
-    let mut blocks = client.partial_blocks(&mut conn, *limit)?;
+    let mut blocks = client.slot_is_null(&mut conn, *limit)?;
     for block in blocks.iter_mut() {
         let block_data: UiConfirmedBlock = serde_json::from_value(std::mem::take(&mut block.data))?;
 
