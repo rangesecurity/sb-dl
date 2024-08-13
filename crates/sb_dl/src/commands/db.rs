@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use clap::ArgMatches;
 use db::{client::BlockFilter, migrations::run_migrations};
 use sb_dl::config::Config;
@@ -124,24 +124,25 @@ async fn get_slot_for_block(
     block: &UiConfirmedBlock,
     rpc: &RpcClient,
 ) -> anyhow::Result<Option<(u64, String)>> {
-    let sample_tx = block
-        .transactions
-        .clone()
-        .and_then(|vec| vec.into_iter().next());
-    let sample_tx_hash = if let Some(tx) = sample_tx {
-        if let EncodedTransaction::Json(tx) = &tx.transaction {
-            tx.signatures.clone()
+    let txs = block.transactions.as_ref().with_context(|| "no transactions")?;
+    if txs.is_empty() {
+        return Err(anyhow!("found no transactions"));
+    }
+    let sample_tx = &txs[0];
+    let sample_tx_hash =  if let EncodedTransaction::Json(tx) = &sample_tx.transaction {
+        if tx.signatures.is_empty() {
+            return Err(anyhow!("found no tx hash"))
         } else {
-            vec![]
+            tx.signatures[0].clone()
         }
     } else {
-        vec![]
+        return Err(anyhow!("unsupported transaction type"))
     };
     // extract slot information
     let slot = if !sample_tx_hash.is_empty() {
         match rpc
             .get_transaction_with_config(
-                &sample_tx_hash[0].parse()?,
+                &sample_tx_hash.parse()?,
                 RpcTransactionConfig {
                     encoding: Some(UiTransactionEncoding::JsonParsed),
                     max_supported_transaction_version: Some(1),
@@ -152,7 +153,7 @@ async fn get_slot_for_block(
         {
             Ok(tx) => tx.slot,
             Err(err) => {
-                log::error!("failed to get tx({}) {err:#?}", sample_tx_hash[0]);
+                log::error!("failed to get tx({}) {err:#?}", sample_tx_hash);
                 return Ok(None);
             }
         }
@@ -160,5 +161,5 @@ async fn get_slot_for_block(
         log::warn!("sample tx hash has no signature");
         return Ok(None);
     };
-    return Ok(Some((slot, sample_tx_hash[0].clone())));
+    return Ok(Some((slot, sample_tx_hash)));
 }
