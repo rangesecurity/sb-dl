@@ -28,16 +28,29 @@ impl Client {
             .with_context(|| "failed to select block numbers")?;
         Ok(numbers)
     }
-    /// Returns up to `limit` blocks which do not have the slot column set or all blocks
-    /// which have slot and number as the same
-    pub fn partial_blocks(
+    /// Returns up to `limit` blocks which do not have the slot column set
+    pub fn slot_is_null(
         self,
         conn: &mut PgConnection,
         limit: i64,
     ) -> anyhow::Result<Vec<Blocks>> {
         use crate::schema::blocks::dsl::*;
         Ok(blocks
-            .filter(slot.is_null().or(number.nullable().eq(slot)))
+            .filter(slot.is_null())
+            .limit(limit)
+            .select(Blocks::as_select())
+            .load(conn)
+            .with_context(|| "failed to load blocks")?)
+    }
+    /// Returns up to `limit` blocks which have slot and number as the same
+    pub fn slot_equals_blocks(
+        self,
+        conn: &mut PgConnection,
+        limit: i64,
+    ) -> anyhow::Result<Vec<Blocks>> {
+        use crate::schema::blocks::dsl::*;
+        Ok(blocks
+            .filter(number.nullable().eq(slot))
             .limit(limit)
             .select(Blocks::as_select())
             .load(conn)
@@ -127,8 +140,6 @@ impl Client {
                 .filter(
                     number
                         .eq(&old_block_number)
-                        .and(slot.is_null())
-                        .or(number.eq(slot_number).and(slot.eq(slot_number))),
                 )
                 .select(Blocks::as_select())
                 .limit(1)
