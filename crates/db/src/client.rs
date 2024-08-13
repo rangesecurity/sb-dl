@@ -29,14 +29,17 @@ impl Client {
         Ok(numbers)
     }
     /// Returns up to `limit` blocks which do not have the slot column set
-    pub fn slot_is_null(
-        self,
-        conn: &mut PgConnection,
-        limit: i64,
-    ) -> anyhow::Result<Vec<Blocks>> {
+    pub fn slot_is_null(self, conn: &mut PgConnection, limit: i64, excluded_blocks: &[i64]) -> anyhow::Result<Vec<Blocks>> {
         use crate::schema::blocks::dsl::*;
-        Ok(blocks
-            .filter(slot.is_null())
+        let mut query = blocks.into_boxed().filter(slot.is_null());
+
+        for excluded_block in excluded_blocks {
+            query = query.filter(number.ne(excluded_block));
+        }
+
+        
+        Ok(
+            query
             .limit(limit)
             .select(Blocks::as_select())
             .load(conn)
