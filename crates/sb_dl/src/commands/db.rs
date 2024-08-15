@@ -1,63 +1,104 @@
+use std::{collections::HashSet, sync::Arc};
+
 use anyhow::{anyhow, Context};
 use clap::ArgMatches;
 use db::{client::BlockFilter, migrations::run_migrations};
 use sb_dl::config::Config;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
+use tokio::task::JoinSet;
 
 pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let limit = matches.get_one::<i64>("limit").unwrap();
     let cfg = Config::load(config_path).await?;
-    let rpc = RpcClient::new(cfg.rpc_url.clone());
+    let rpc = Arc::new(RpcClient::new(cfg.rpc_url.clone()));
+    let pool = db::new_connection_pool(&cfg.db_url)?;
     let mut conn = db::new_connection(&cfg.db_url)?;
+    {
 
-    // perform db migrations
-    run_migrations(&mut conn);
+        // perform db migrations
+        run_migrations(&mut conn);
+    }
 
     let client = db::client::Client {};
+    let no_transactions = Arc::new(tokio::sync::RwLock::new(HashSet::<i64>::default()));
     loop {
-        let mut blocks = client.slot_is_null(&mut conn, *limit)?;
+
+        let blocks = client.slot_is_null(&mut conn, *limit, &no_transactions.read().await.iter().map(|v| *v).collect::<Vec<_>>())?;
         if blocks.is_empty() {
             // no more blocks to repair
             break;
         }
-        for block in blocks.iter_mut() {
-            let block_data: UiConfirmedBlock = serde_json::from_value(std::mem::take(&mut block.data))?;
-    
-            let (slot, sample_tx_hash) = match get_slot_for_block(&block_data, &rpc).await {
-                Ok(Some(slot)) => slot,
-                Ok(None) => {
-                    log::warn!("failed to find slot for block({})", block.number);
-                    continue;
+        let mut join_set = JoinSet::new();
+        let block_chunks = blocks.chunks(10);
+        for block_chunk in block_chunks.into_iter() {
+            {
+                match pool.get() {
+                    Ok(mut pool_conn) => {
+                        let rpc = rpc.clone();
+                        let mut block_chunk = block_chunk.to_vec();
+                        let no_transactions = no_transactions.clone();
+                        join_set.spawn(async move {
+                            for block in block_chunk.iter_mut() {
+                                let block_data: UiConfirmedBlock = if let Ok(block) = serde_json::from_value(std::mem::take(&mut block.data)) {
+                                    block
+                                } else {
+                                    continue;
+                                };
+                        
+                                let (slot, sample_tx_hash) = match get_slot_for_block(&block_data, &rpc).await {
+                                    Ok(Some(slot)) => slot,
+                                    Ok(None) => {
+                                        log::warn!("failed to find slot for block({})", block.number);
+                                        let mut no_txs = no_transactions.write().await;
+                                        no_txs.insert(block.number);
+                                        continue;
+                                    }
+                                    Err(err) => {
+                                        log::error!("failed to find slot for block({}) {err:#?}", block.number);
+                                        let mut no_txs = no_transactions.write().await;
+                                        no_txs.insert(block.number);
+                                        continue;
+                                    }
+                                };
+                                let new_block_number = if let Some(block_height) = block_data.block_height {
+                                    block_height
+                                } else {
+                                    log::warn!(
+                                        "found missing block_height(slot={slot}, block.number={})",
+                                        block.number
+                                    );
+                                    continue;
+                                };
+                                log::info!(
+                                    "block(slot={slot}, new_block_number={new_block_number} block.height={:?}, block.number={}, parent_slot={}, block_hash={}, sample_tx_hash={sample_tx_hash})",
+                                    block_data.block_height,
+                                    block.number,
+                                    block_data.parent_slot,
+                                    block_data.blockhash,
+                                );
+                                if let Err(err) = client.update_block_slot(
+                                    &mut pool_conn,
+                                    block.id,
+                                    new_block_number as i64,
+                                    slot as i64,
+                                ) {
+                                    log::error!("failed to update_block_slot(old_block_number={}, new_block_number={new_block_number}, slot={slot}) {err:#?}", block.number);
+                                }
+                            }
+                        });
+                    }
+                    Err(err) => {
+                        log::error!("failed to get conn {err:#?}");
+                    }
                 }
-                Err(err) => {
-                    log::error!("failed to find slot for block({}) {err:#?}", block.number);
-                    continue;
-                }
-            };
-            let new_block_number = if let Some(block_height) = block_data.block_height {
-                block_height
-            } else {
-                log::warn!(
-                    "found missing block_height(slot={slot}, block.number={})",
-                    block.number
-                );
-                continue;
-            };
-            log::info!(
-                "block(slot={slot}, new_block_number={new_block_number} block.height={:?}, block.number={}, parent_slot={}, block_hash={}, sample_tx_hash={sample_tx_hash})",
-                block_data.block_height,
-                block.number,
-                block_data.parent_slot,
-                block_data.blockhash,
-            );
-            client.update_block_slot(
-                &mut conn,
-                block.number,
-                new_block_number as i64,
-                slot as i64,
-            )?;
+            }
         }
+        while let Some(_) = join_set.join_next().await {
+
+        }
+  
+
     }
 
 
