@@ -107,6 +107,8 @@ impl Client {
             slot: slot_number,
         }
         .insert_into(blocks)
+        // silently ignore duplicate constriants
+        .on_conflict_do_nothing()
         .execute(conn)
         .with_context(|| "failed to insert block")?;
         Ok(())
