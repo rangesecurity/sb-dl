@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{anyhow, Context};
 use db::{client::{BlockFilter, Client}, migrations::run_migrations};
 use sb_dl::{config::Config, services::backfill::Backfiller, types::BlockInfo};
@@ -36,7 +38,6 @@ pub async fn backfill(
     let client = Client{};
     let gap_end = client.find_gap_end(&mut conn, *starting_number)?;
 
-
     for missing_block in *starting_number..gap_end {
         // get block info for the previous block which isn't missing
         let blocks = client.select_block(&mut conn, BlockFilter::Number(missing_block - 1))?;
@@ -65,6 +66,7 @@ pub async fn backfill(
                 possible_slot += 1;
             }
         }
+        tokio::time::sleep(Duration::from_secs(10)).await;
     }
 
 
