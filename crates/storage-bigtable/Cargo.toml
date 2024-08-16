@@ -3,7 +3,7 @@ name = "solana-storage-bigtable"
 description = "Solana Storage BigTable"
 documentation = "https://docs.rs/solana-storage-bigtable"
 edition = "2021"
-
+version = "0.1.0"
 [dependencies.backoff]
 version = "0.4"
 features = ["tokio"]

@@ -2,6 +2,7 @@
 description = "Blockchain, Rebuilt for Scale"
 name = "proto"
 edition = "2021"
+version = "0.1.0"
 
 [dependencies.tonic-build]
 version = "0.11"
