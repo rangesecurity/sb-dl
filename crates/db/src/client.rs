@@ -101,33 +101,14 @@ impl Client {
         block_data: serde_json::Value,
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
-        conn.transaction::<_, anyhow::Error, _>(|conn| {
-            match blocks
-                .filter(number.eq(&block_number))
-                .filter(slot.eq(&slot_number))
-                .limit(1)
-                .select(Blocks::as_select())
-                .load(conn)
-            {
-                Ok(block_infos) => {
-                    if block_infos.is_empty() {
-                        NewBlock {
-                            number: block_number,
-                            data: block_data,
-                            slot: slot_number,
-                        }
-                        .insert_into(blocks)
-                        .execute(conn)
-                        .with_context(|| "failed to insert block")?;
-                        Ok(())
-                    } else {
-                        // block already exists
-                        return Ok(());
-                    }
-                }
-                Err(err) => return Err(anyhow!("failed to check for pre-existing block {err:#?}")),
-            }
-        })?;
+        NewBlock {
+            number: block_number,
+            data: block_data,
+            slot: slot_number,
+        }
+        .insert_into(blocks)
+        .execute(conn)
+        .with_context(|| "failed to insert block")?;
         Ok(())
     }
     /// Used to update blocks which have missing slot information
