@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context};
-use diesel::prelude::*;
+use diesel::{prelude::*, sql_types::BigInt};
 use uuid::Uuid;
 
 use crate::models::{Blocks, Idls, NewBlock, Programs};
@@ -264,5 +264,31 @@ impl Client {
             Ok(())
         })?;
         Ok(())
+    }
+    /// Given a starting block height, determine the next block for which we have data available.
+    ///
+    /// If starting_number == 10, and the return value is 20, this means we are missing data for blocks 10 -> 20
+    pub fn find_gap_end(self, conn: &mut PgConnection, starting_number: i64) -> anyhow::Result<i64> {
+        use crate::schema::blocks::dsl::*;
+        let end_number;
+        let mut next_number = starting_number + 1;
+        loop {
+            match blocks
+            .filter(
+                number.eq(&next_number)
+            )
+            .select(Blocks::as_select())
+            .limit(1)
+            .load(conn) {
+                Ok(block_infos) => if !block_infos.is_empty() {
+                    end_number = next_number-1;
+                    break;
+                }
+                Err(err) => return Err(anyhow!("failed to check for block({next_number}) {err:#?}"))
+            }
+            next_number += 1;
+        }
+
+        Ok(end_number)
     }
 }

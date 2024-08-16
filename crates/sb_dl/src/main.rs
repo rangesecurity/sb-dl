@@ -65,6 +65,14 @@ async fn main() -> Result<()> {
                                 .long("listen-url")
                                 .help("url to expose the api on"),
                         ),
+                    Command::new("repair-gaps")
+                    .about("used to repair gaps in block coverage")
+                    .arg(
+                        Arg::new("starting-number")
+                        .long("starting-number")
+                        .value_parser(clap::value_parser!(i64))
+                    )
+                    .arg(failed_blocks_flag())
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag()),
             Command::new("new-config"),
@@ -112,6 +120,14 @@ async fn main() -> Result<()> {
                 ),
             Command::new("repair-invalid-slots")
                 .about("repair database entries with invalid slot numbering"),
+            Command::new("find-gap-end")
+            .about("find the ending block for a gap")
+            .arg(
+                Arg::new("gap-start")
+                .long("gap-start")
+                .help("starting number to assume a gap for")
+                .value_parser(clap::value_parser!(i64))
+            )
         ])
         .get_matches();
 
@@ -151,6 +167,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
                 .await
         }
         Some(("repair-invalid-slots", _)) => commands::db::repair_invalid_slots(config_path).await,
+        Some(("find-gap-end", fge)) => commands::db::find_gap_end(fge, config_path).await,
         Some(("services", s)) => match s.subcommand() {
             Some(("bigtable-downloader", bd)) => {
                 commands::services::downloaders::bigtable_downloader(bd, config_path).await
@@ -170,6 +187,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             Some(("transfer-flow-api", tfa)) => {
                 commands::services::transfer_api::transfer_flow_api(tfa, config_path).await
             }
+            Some(("repair-gaps", rg)) => commands::services::backfill::backfill(rg, config_path).await,
             _ => Err(anyhow!("invalid subcommand")),
         },
         _ => Err(anyhow!("invalid subcommand")),

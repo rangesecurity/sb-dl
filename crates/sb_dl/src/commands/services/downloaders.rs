@@ -66,11 +66,11 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
     let sig_term = signal(SignalKind::terminate())?;
 
     // if we fail to connect to postgres, we should terminate the thread
-    let conn = db::new_connection(&cfg.db_url)?;
+    let mut conn = db::new_connection(&cfg.db_url)?;
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(conn, failed_blocks_dir, blocks_rx).await },
+        async move { block_persistence_loop(&mut conn, failed_blocks_dir, blocks_rx).await },
     );
 
     let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
@@ -125,11 +125,11 @@ pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::R
     let sig_term = signal(SignalKind::terminate())?;
 
     // if we fail to connect to postgres, we should terminate the thread
-    let conn = db::new_connection(&cfg.db_url)?;
+    let mut conn = db::new_connection(&cfg.db_url)?;
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(conn, failed_blocks_dir, blocks_rx).await },
+        async move { block_persistence_loop(&mut conn, failed_blocks_dir, blocks_rx).await },
     );
 
     // optional value containing error message encountered during program execution
@@ -171,7 +171,7 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(conn, failed_blocks_dir, blocks_rx).await },
+        async move { block_persistence_loop(&mut conn, failed_blocks_dir, blocks_rx).await },
     );
 
     let backfiller = Backfiller::new(&cfg.rpc_url);
@@ -180,7 +180,7 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
 
     tokio::task::spawn(async move {
         log::info!("starting backfiller. disable_minimization={no_minimization}");
-        if let Err(err) = backfiller.start(blocks_tx, no_minimization).await {
+        if let Err(err) = backfiller.automatic_backfill(blocks_tx, no_minimization).await {
             let _ = finished_tx.send(Some(format!("backfiller failed {err:#?}")));
         } else {
             log::info!("backfiller finished");
@@ -265,8 +265,8 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
 }
 
 // shared logic responsible for persisting blocks to the database
-async fn block_persistence_loop(
-    mut conn: PgConnection,
+pub async fn block_persistence_loop(
+    conn: &mut PgConnection,
     failed_blocks_dir: String,
     mut blocks_rx: tokio::sync::mpsc::Receiver<BlockInfo>,
 ) {
@@ -300,7 +300,7 @@ async fn block_persistence_loop(
             Ok(mut block) => {
                 if client
                     .insert_block(
-                        &mut conn,
+                        conn,
                         block_info.block_height as i64,
                         Some(slot as i64),
                         block.clone(),
@@ -314,7 +314,7 @@ async fn block_persistence_loop(
                     sanitize_for_postgres(&mut block);
                     // try to reinsert block
                     if let Err(err) = client.insert_block(
-                        &mut conn,
+                        conn,
                         block_info.block_height as i64,
                         Some(slot as i64),
                         block.clone(),

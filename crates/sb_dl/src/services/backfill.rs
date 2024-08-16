@@ -17,7 +17,27 @@ impl Backfiller {
             rpc: RpcClient::new(endpoint.to_string()),
         }
     }
-    pub async fn start(
+    pub async fn get_block(
+        &self,
+        slot: u64,
+        no_minimization: bool
+    ) -> anyhow::Result<UiConfirmedBlock> {
+        let mut block = self.rpc.get_block_with_config(
+            slot,
+            RpcBlockConfig {
+                encoding: Some(UiTransactionEncoding::JsonParsed),
+                transaction_details: Some(TransactionDetails::Full),
+                rewards: Some(false),
+                commitment: Some(CommitmentConfig::finalized()),
+                max_supported_transaction_version: Some(1),                
+            }
+        ).await.with_context(|| "failed to get block")?;
+        if no_minimization == false {
+            block = filter_vote_transactions(block);
+        }
+        Ok(block)
+    }
+    pub async fn automatic_backfill(
         &self,
         blocks_tx: tokio::sync::mpsc::Sender<BlockInfo>,
         no_minimization: bool,
@@ -30,25 +50,8 @@ impl Backfiller {
                 .with_context(|| "failed to get slot height")?;
             // backfill 300 most recent blocks, over estimating blocks per second by 2x
             for slot_height in current_slot - 300..current_slot {
-                match self
-                    .rpc
-                    .get_block_with_config(
-                        // this is actually the slot
-                        slot_height,
-                        RpcBlockConfig {
-                            encoding: Some(UiTransactionEncoding::JsonParsed),
-                            transaction_details: Some(TransactionDetails::Full),
-                            rewards: Some(false),
-                            commitment: Some(CommitmentConfig::finalized()),
-                            max_supported_transaction_version: Some(1),
-                        },
-                    )
-                    .await
-                {
-                    Ok(mut block) => {
-                        if no_minimization == false {
-                            block = filter_vote_transactions(block);
-                        }
+                match self.get_block(slot_height, no_minimization).await {
+                    Ok(block) => {
                         let block_height = if let Some(block_height) = block.block_height {
                             block_height
                         } else {

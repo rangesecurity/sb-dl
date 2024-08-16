@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use anyhow::{anyhow, Context};
 use clap::ArgMatches;
-use db::{client::BlockFilter, migrations::run_migrations};
+use db::{client::{BlockFilter, Client}, migrations::run_migrations};
 use sb_dl::config::Config;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
@@ -121,9 +121,11 @@ pub async fn repair_invalid_slots(config_path: &str) -> anyhow::Result<()> {
         .number;
 
     loop {
+        log::info!("checking block({block_number}");
         let mut block = client.select_block(&mut conn, BlockFilter::Number(block_number))?;
         let mut block = if block.is_empty() {
-            return Err(anyhow!("found no matching block({block_number})"));
+            block_number -= 1;
+            continue;
         } else if block.len() > 1 {
             return Err(anyhow!("found too many blocks({block_number})"));
         } else {
@@ -158,6 +160,20 @@ pub async fn repair_invalid_slots(config_path: &str) -> anyhow::Result<()> {
         // increment block_number to repair the next available block
         block_number += 1;
     }
+}
+
+
+pub async fn find_gap_end(
+    matches: &clap::ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let starting_number = matches.get_one::<i64>("starting-number").unwrap();
+    let cfg = Config::load(config_path).await?;
+    let mut conn = db::new_connection(&cfg.db_url)?;
+    let client = Client{};
+    let gap_end = client.find_gap_end(&mut conn, *starting_number)?;
+    log::info!("found_gap(start={starting_number}, end={gap_end})");
+    Ok(())
 }
 
 /// returns the slot for the given block, along with the tx hash used to determine this
@@ -204,3 +220,5 @@ async fn get_slot_for_block(
     };
     return Ok(Some((slot, sample_tx_hash)));
 }
+
+
