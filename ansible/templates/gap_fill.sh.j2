@@ -1,0 +1,23 @@
+#!/bin/bash
+
+while true; do
+    # The SQL query
+    SQL_QUERY="select blocks.number + 1 gap_start from blocks where blocks.number >= 261504662 AND NOT EXISTS ( SELECT NULL FROM blocks b WHERE b.number = blocks.number + 1 ) order by blocks.number asc limit 10;"
+
+    # Execute the query and store results in an array
+    readarray -t gap_starts < <(PGPASSWORD="your_password" psql -d solana -t -c "$SQL_QUERY")
+
+    # Flag to check if any gaps were found
+    gaps_found=false
+
+    for gap_start in "${gap_starts[@]}"; do
+        # Remove leading/trailing whitespace
+        gap_start=$(echo $gap_start | xargs)
+        if [[ "$gap_start" == "" ]]; then 
+            continue
+        fi;
+        echo "Gap found starting at block: $gap_start"
+        {{ app_root }}/sb_dl --log-file {{ app_root }}/logs/sb_dl_gap_repair.log --config {{ app_root }}/config.yaml services repair-gaps --starting-number "$gap_start"
+    done
+
+done

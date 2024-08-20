@@ -41,6 +41,18 @@
         dest: "/etc/systemd/system/transfer_flow_api.service"
         mode: 0755
 
+    - name: Ship gap fill script to server
+      template:
+        src: "gap_fill.sh.j2"
+        dest: "{{app_root}}/gap_fill.sh"
+        mode: 0755
+
+    - name: Ship gap fill service to server
+      template:
+        src: "gap_fill.service.j2"
+        dest: "/etc/systemd/system/gap_fill.service"
+        mode: 0755
+
     - name: Configuring geyser stream service
       service:
         name: geyser_stream
@@ -65,6 +77,13 @@
     - name: Configuring transfer flow api service
       service:
         name: transfer_flow_api
+        state: restarted
+        enabled: true
+        daemon_reload: true
+
+    - name: Configuring gap fill service
+      service:
+        name: gap_fill
         state: restarted
         enabled: true
         daemon_reload: true
