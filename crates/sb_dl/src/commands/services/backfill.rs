@@ -38,7 +38,8 @@ pub async fn backfill(
     let client = Client{};
     let gap_end = client.find_gap_end(&mut conn, *starting_number)?;
 
-    for missing_block in *starting_number-10..gap_end {
+    // start trying to repair gaps at the block immediately preceeding the current missing block
+    for missing_block in *starting_number-1..gap_end {
         // get block info for the previous block which isn't missing
         let blocks = client.select_block(&mut conn, BlockFilter::Number(missing_block - 1))?;
         if blocks.is_empty() {
