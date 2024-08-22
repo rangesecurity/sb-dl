@@ -1,18 +1,11 @@
 use {
-    crate::{config::BigTableConfig, types::BlockInfo, utils::process_block},
-    anyhow::{anyhow, Context},
-    bigtable_rs::{
+    crate::{config::BigTableConfig, types::BlockInfo, utils::process_block}, anyhow::{anyhow, Context}, bigtable_rs::{
         bigtable::{read_rows::decode_read_rows_response, BigTableConnection},
         google::bigtable::v2::{row_filter::Filter, ReadRowsRequest, RowFilter, RowSet},
-    },
-    solana_sdk::clock::Slot,
-    solana_storage_bigtable::{
+    }, futures::stream::{self, StreamExt}, solana_sdk::clock::Slot, solana_storage_bigtable::{
         bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
         key_to_slot, slot_to_blocks_key, StoredConfirmedBlock,
-    },
-    solana_storage_proto::convert::generated,
-    solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock},
-    std::collections::HashSet,
+    }, solana_storage_proto::convert::generated, solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock}, std::{collections::HashSet, sync::Arc},
 };
 
 #[derive(Clone)]
@@ -47,12 +40,13 @@ impl Downloader {
     /// `start`: optional slot to start downloading from, if None starts at slot 0
     /// `limit`: max number of slots to index, if None use latest slot as bound
     pub async fn start(
-        &self,
+        self: &Arc<Self>,
         blocks_tx: tokio::sync::mpsc::Sender<BlockInfo>,
         already_indexed: HashSet<u64>,
         start: Option<u64>,
         limit: Option<u64>,
         no_minimization: bool,
+        threads: usize,
     ) -> anyhow::Result<()> {
         let start = match start {
             Some(start) => start,
@@ -78,42 +72,49 @@ impl Downloader {
             })
             .collect::<Vec<solana_program::clock::Slot>>();
 
-        for slot in slots_to_fetch {
-            // retrieve confirmed block from bigtable
-            match self.get_confirmed_block(slot).await {
-                Ok(block) => {
-                    if let Some(block) = block {
-                        let block_height = if let Some(block_height) = block.block_height {
-                            block_height
-                        } else {
-                            log::warn!("block({slot}) height is none");
-                            continue;
-                        };
-                        // post process the block to handle encoding and space minimization
-                        match process_block(block, no_minimization) {
-                            Ok(block) => {
-                                if let Err(err) = blocks_tx
-                                    .send(BlockInfo {
-                                        block_height,
-                                        slot: Some(slot),
-                                        block,
-                                    })
-                                    .await
-                                {
-                                    log::error!("failed to send block({slot}) {err:#?}");
+        stream::iter(slots_to_fetch).map(|slot| {
+            let blocks_tx = blocks_tx.clone();
+            let service = self.clone();
+            tokio::task::spawn(async move {
+                match service.get_confirmed_block(slot).await {
+                    Ok(block) => {
+                        if let Some(block) = block {
+                            let block_height = if let Some(block_height) = block.block_height {
+                                block_height
+                            } else {
+                                log::warn!("block({slot}) height is none");
+                                return;
+                            };
+                            // post process the block to handle encoding and space minimization
+                            match process_block(block, no_minimization) {
+                                Ok(block) => {
+                                    if let Err(err) = blocks_tx
+                                        .send(BlockInfo {
+                                            block_height,
+                                            slot: Some(slot),
+                                            block,
+                                        })
+                                        .await
+                                    {
+                                        log::error!("failed to send block({slot}) {err:#?}");
+                                    }
                                 }
-                            }
-                            Err(err) => {
-                                log::error!("failed to minimize and encode block({slot}) {err:#?}");
+                                Err(err) => {
+                                    log::error!("failed to minimize and encode block({slot}) {err:#?}");
+                                }
                             }
                         }
                     }
+                    Err(err) => {
+                        log::error!("failed to fetch block({slot}) {err:#?}");
+                    }
                 }
-                Err(err) => {
-                    log::error!("failed to fetch block({slot}) {err:#?}");
-                }
-            }
-        }
+            })
+
+        })
+        .buffer_unordered(threads)
+        .collect::<Vec<_>>()
+        .await;
 
         Ok(())
     }

@@ -16,7 +16,7 @@ use {
         types::BlockInfo,
     },
     solana_transaction_status::UiConfirmedBlock,
-    std::collections::HashSet,
+    std::{collections::HashSet, sync::Arc},
     tokio::signal::unix::{signal, Signal, SignalKind},
 };
 
@@ -27,6 +27,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
     let limit = matches.get_one::<u64>("limit").cloned();
     let no_minimization = matches.get_flag("no-minimization");
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
+    let threads = *matches.get_one::<usize>("threads").unwrap();
 
     // create failed blocks directory, ignoring error (its already created)
     let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
@@ -55,7 +56,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
     // mark failed blocks as already indexed to avoid redownloading
     already_indexed.extend(failed_blocks.iter());
 
-    let downloader = Downloader::new(cfg.bigtable).await?;
+    let downloader = Arc::new(Downloader::new(cfg.bigtable).await?);
 
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
     let (blocks_tx, blocks_rx) =
@@ -79,7 +80,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
         log::info!("starting block_indexing. disable_minimization={no_minimization}");
 
         if let Err(err) = downloader
-            .start(blocks_tx, already_indexed, start, limit, no_minimization)
+            .start(blocks_tx, already_indexed, start, limit, no_minimization, threads)
             .await
         {
             let _ = finished_tx.send(Some(format!("downloader failed {err:#?}")));

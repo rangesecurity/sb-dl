@@ -47,7 +47,15 @@ async fn main() -> Result<()> {
                                 .required(false),
                         )
                         .arg(no_minimization_flag())
-                        .arg(failed_blocks_flag()),
+                        .arg(failed_blocks_flag())
+                        .arg(
+                            Arg::new("threads")
+                            .long("threads")
+                            .help("number of parallel download processes to use")
+                            .value_parser(clap::value_parser!(usize))
+                            .required(false)
+                            .default_value("1")
+                        ),
                     Command::new("backfiller")
                         .about("block backfiller to covers gaps missed by geyser")
                         .arg(no_minimization_flag())
