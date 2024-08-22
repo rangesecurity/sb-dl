@@ -1,6 +1,6 @@
 use {
     crate::{config::BigTableConfig, types::BlockInfo, utils::process_block}, anyhow::{anyhow, Context}, bigtable_rs::{
-        bigtable::{read_rows::decode_read_rows_response, BigTableConnection},
+        bigtable::{read_rows::decode_read_rows_response, BigTable, BigTableConnection},
         google::bigtable::v2::{row_filter::Filter, ReadRowsRequest, RowFilter, RowSet},
     }, futures::stream::{self, StreamExt}, solana_sdk::clock::Slot, solana_storage_bigtable::{
         bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
@@ -78,9 +78,10 @@ impl Downloader {
             for slot in slot_chunk {
                 let slot = *slot;
                 let blocks_tx = blocks_tx.clone();
-                let service = self.clone();
+                let client = self.conn.client();
+                let max_decoding_size = self.max_decoding_size;
                 futs.spawn(async move {
-                    match service.get_confirmed_block(slot).await {
+                    match Self::get_confirmed_block(client, max_decoding_size, slot).await {
                         Ok(block) => {
                             if let Some(block) = block {
                                 let block_height = if let Some(block_height) = block.block_height {
@@ -120,14 +121,15 @@ impl Downloader {
         }
         Ok(())
     }
-
-    pub async fn get_confirmed_block(&self, slot: Slot) -> anyhow::Result<Option<ConfirmedBlock>> {
-        let mut client = self.conn.client();
-
+    pub async fn get_confirmed_block(
+        mut client: BigTable,
+        max_decoding_size: usize,
+        slot: Slot
+    ) -> anyhow::Result<Option<ConfirmedBlock>> {
         let mut big_client = client
             .get_client()
             .clone()
-            .max_decoding_message_size(self.max_decoding_size);
+            .max_decoding_message_size(max_decoding_size);
 
         let mut response = decode_read_rows_response(
             &None,
