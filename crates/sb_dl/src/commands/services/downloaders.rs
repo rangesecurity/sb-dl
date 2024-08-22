@@ -60,7 +60,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
 
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
     let (blocks_tx, blocks_rx) =
-        tokio::sync::mpsc::channel::<BlockInfo>(limit.unwrap_or(1_000) as usize);
+        tokio::sync::mpsc::channel::<BlockInfo>(10_000 as usize);
 
     let sig_quit = signal(SignalKind::quit())?;
     let sig_int = signal(SignalKind::interrupt())?;
