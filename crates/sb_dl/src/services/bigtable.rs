@@ -5,7 +5,7 @@ use {
     }, futures::stream::{self, StreamExt}, solana_sdk::clock::Slot, solana_storage_bigtable::{
         bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
         key_to_slot, slot_to_blocks_key, StoredConfirmedBlock,
-    }, solana_storage_proto::convert::generated, solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock}, std::{collections::HashSet, sync::Arc},
+    }, solana_storage_proto::convert::generated, solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock}, std::{collections::HashSet, sync::Arc}, tokio::task::JoinSet,
 };
 
 #[derive(Clone)]
@@ -59,7 +59,7 @@ impl Downloader {
             // although this requires using a solana rpc
             None => u64::MAX - start,
         };
-
+        log::info!("preparing slots to index");
         // get the list of slots to fetch, excluding any previously indexed slots from the specified range
         let slots_to_fetch = (start..start + limit)
             .into_iter()
@@ -71,51 +71,53 @@ impl Downloader {
                 }
             })
             .collect::<Vec<solana_program::clock::Slot>>();
-
-        stream::iter(slots_to_fetch).map(|slot| {
-            let blocks_tx = blocks_tx.clone();
-            let service = self.clone();
-            tokio::task::spawn(async move {
-                match service.get_confirmed_block(slot).await {
-                    Ok(block) => {
-                        if let Some(block) = block {
-                            let block_height = if let Some(block_height) = block.block_height {
-                                block_height
-                            } else {
-                                log::warn!("block({slot}) height is none");
-                                return;
-                            };
-                            // post process the block to handle encoding and space minimization
-                            match process_block(block, no_minimization) {
-                                Ok(block) => {
-                                    if let Err(err) = blocks_tx
-                                        .send(BlockInfo {
-                                            block_height,
-                                            slot: Some(slot),
-                                            block,
-                                        })
-                                        .await
-                                    {
-                                        log::error!("failed to send block({slot}) {err:#?}");
+        let slot_chunks = slots_to_fetch.chunks(threads);
+        log::info!("beginning indexing");
+        for slot_chunk in slot_chunks {
+            let mut futs = JoinSet::new();
+            for slot in slot_chunk {
+                let slot = *slot;
+                let blocks_tx = blocks_tx.clone();
+                let service = self.clone();
+                futs.spawn(async move {
+                    match service.get_confirmed_block(slot).await {
+                        Ok(block) => {
+                            if let Some(block) = block {
+                                let block_height = if let Some(block_height) = block.block_height {
+                                    block_height
+                                } else {
+                                    log::warn!("block({slot}) height is none");
+                                    return;
+                                };
+                                // post process the block to handle encoding and space minimization
+                                match process_block(block, no_minimization) {
+                                    Ok(block) => {
+                                        if let Err(err) = blocks_tx
+                                            .send(BlockInfo {
+                                                block_height,
+                                                slot: Some(slot),
+                                                block,
+                                            })
+                                            .await
+                                        {
+                                            log::error!("failed to send block({slot}) {err:#?}");
+                                        }
                                     }
-                                }
-                                Err(err) => {
-                                    log::error!("failed to minimize and encode block({slot}) {err:#?}");
+                                    Err(err) => {
+                                        log::error!("failed to minimize and encode block({slot}) {err:#?}");
+                                    }
                                 }
                             }
                         }
+                        Err(err) => {
+                            log::error!("failed to fetch block({slot}) {err:#?}");
+                        }
                     }
-                    Err(err) => {
-                        log::error!("failed to fetch block({slot}) {err:#?}");
-                    }
-                }
-            })
-
-        })
-        .buffer_unordered(threads)
-        .collect::<Vec<_>>()
-        .await;
-
+                });
+            }
+            while let Some(_) = futs.join_next().await {}
+            futs.abort_all();
+        }
         Ok(())
     }
 
