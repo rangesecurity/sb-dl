@@ -105,6 +105,14 @@ async fn main() -> Result<()> {
                         .help("number of blocks to fill at once")
                         .value_parser(clap::value_parser!(i64)),
                 ),
+            Command::new("fill-missing-slots-no-tx")
+            .about("fill missing slots for blocks with no non-vote transactions")
+            .arg(
+                Arg::new("limit")
+                    .long("limit")
+                    .help("number of blocks to fill at once")
+                    .value_parser(clap::value_parser!(i64)),
+            ),
             Command::new("create-transfer-graph-for-tx")
                 .about("generate transfer graph for a single tx")
                 .arg(
@@ -176,6 +184,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         }
         Some(("repair-invalid-slots", _)) => commands::db::repair_invalid_slots(config_path).await,
         Some(("find-gap-end", fge)) => commands::db::find_gap_end(fge, config_path).await,
+        Some(("fill-missing-slots-no-tx", fmsnt)) => commands::db::fill_missing_slots_no_tx(fmsnt, config_path).await,
         Some(("services", s)) => match s.subcommand() {
             Some(("bigtable-downloader", bd)) => {
                 commands::services::downloaders::bigtable_downloader(bd, config_path).await

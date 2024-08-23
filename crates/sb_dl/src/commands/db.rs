@@ -8,6 +8,62 @@ use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransacti
 use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
 use tokio::task::JoinSet;
 
+pub async fn fill_missing_slots_no_tx(
+    matches: &ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let limit = matches.get_one::<i64>("limit").unwrap();
+    let cfg = Config::load(config_path).await?;
+    let rpc = Arc::new(RpcClient::new(cfg.rpc_url.clone()));
+    let pool = db::new_connection_pool(&cfg.db_url)?;
+    let mut conn = db::new_connection(&cfg.db_url)?;
+    {
+
+        // perform db migrations
+        run_migrations(&mut conn);
+    }
+
+    let client = db::client::Client {};
+    let blocks = client.slot_is_null(&mut conn, *limit, &[])?;
+    if blocks.is_empty() {
+        return Ok(());
+    }
+    for block in blocks {
+        let ui_block: UiConfirmedBlock = serde_json::from_value(block.data)?;
+        let Some(txs) = ui_block.transactions else {
+            log::warn!("transactions are None");
+            continue;
+        };
+        if !txs.is_empty() {
+            log::warn!("found null slot with txs");
+            continue;
+        }
+        let next_block: UiConfirmedBlock = match client.select_block(&mut conn, BlockFilter::Number(block.number+1)) {
+            Ok(mut blocks) => if blocks.is_empty() {
+                log::warn!("failed to find next block(current={})", block.number);
+                continue;
+            } else {
+                serde_json::from_value(std::mem::take(&mut blocks[0].data))?
+            }
+            Err(err) => {
+                log::error!("failed to query db {err:#?}");
+                continue;
+            }
+        };
+        log::info!("found missing_slot(slot={}, block={}, next_block={})", next_block.parent_slot, block.number, block.number+1);
+        // confirm no block with the missing slot exists
+        if let Ok(blocks) = client.select_block(&mut conn, BlockFilter::Slot(next_block.parent_slot as i64)) {
+            if !blocks.is_empty() {
+                log::warn!("slot calculation isnt working");
+            }
+        }
+        //if let Err(err) = client.update_slot(&mut conn, block.number, next_block.parent_slot as i64) {
+        //    log::error!("failed to udpate slot(block={}, slot={})", block.number, next_block.parent_slot);
+        //}
+    }
+    Ok(())
+}
+
 pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let limit = matches.get_one::<i64>("limit").unwrap();
     let cfg = Config::load(config_path).await?;
