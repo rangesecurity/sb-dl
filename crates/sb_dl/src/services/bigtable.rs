@@ -121,6 +121,108 @@ impl Downloader {
         }
         Ok(())
     }
+    /// Downloads multiple blocks at once, returning a vector of vec![(block_slot, block_data)]
+    pub async fn get_confirmed_blocks(
+        &self,
+        slots: &[Slot]
+    ) -> anyhow::Result<Vec<(u64, ConfirmedBlock)>> {
+        let mut client = self.conn.client();
+
+        let mut big_client = client
+            .get_client()
+            .clone()
+            .max_decoding_message_size(self.max_decoding_size);
+
+        let response = decode_read_rows_response(
+            &None,
+            big_client
+                .read_rows(ReadRowsRequest {
+                    table_name: client.get_full_table_name("blocks"),
+                    app_profile_id: "default".to_string(),
+                    rows_limit: slots.len() as i64,
+                    rows: Some(RowSet {
+                        row_keys: slots.into_iter().map(|slot| slot_to_blocks_key(*slot).into()).collect(),
+                        row_ranges: vec![],
+                    }),
+                    filter: Some(RowFilter {
+                        // Only return the latest version of each cell
+                        filter: Some(Filter::CellsPerColumnLimitFilter(1)),
+                    }),
+                    request_stats_view: 0,
+                    reversed: false,
+                })
+                .await
+                .with_context(|| format!("failed to get blocks"))?
+                .into_inner(),
+        )
+        .await
+        .with_context(|| "failed to decode response")?;
+        Ok(response.into_iter().filter_map(|mut response| {
+            if response.1.len() != 1 {
+                log::error!("cell contains no data");
+                return None;
+            }
+            let key = match String::from_utf8(response.0) {
+                Ok(key) => key,
+                Err(err) => {
+                    log::error!("failed to parse key {err:#?}");
+                    return None;
+                }
+            };
+            if response.1[0].qualifier.is_empty() {
+                log::warn!("empty qualifier(key={key})");
+                return None;
+            }
+            let cell_name = match String::from_utf8(
+                std::mem::take(&mut response.1[0].qualifier)
+            ) {
+                Ok(cell_name) => cell_name,
+                Err(err) => {
+                    log::error!("failed to parse qualifier(key={key}) {err:#?}");
+                    return None
+                }
+            };
+            if response.1[0].value.is_empty() {
+                log::error!("empty value(key={key})");
+                return None;
+            }
+            let slot = match key_to_slot(&key) {
+                Some(slot) => slot,
+                None => {
+                    log::error!("failed to parse key_to_slot(key={key})");
+                    return None;
+                }
+            };
+
+            let cell_data = match deserialize_protobuf_or_bincode_cell_data::<
+                StoredConfirmedBlock,
+                generated::ConfirmedBlock,
+            >(
+                &[(cell_name, std::mem::take(&mut response.1[0].value))],
+                "blocks",
+                key,
+            ) {
+                Ok(cell_data) => cell_data,
+                Err(err) => {
+                    log::error!("failed to deserialize(slot={slot}) {err:#?}");
+                    return None;
+                }
+            };
+            let confirmed_block: ConfirmedBlock = match cell_data {
+                CellData::Bincode(block) => block.into(),
+                CellData::Protobuf(block) => match block.try_into() {
+                    Ok(block) => block,
+                    Err(err) => {
+                        log::error!("failed to parse cell_data(slot={slot}) {err:#?}");
+                        return None;
+                    }
+                },
+            };
+            Some((slot, confirmed_block))
+        }).collect::<Vec<_>>())
+
+     
+    }
     pub async fn get_confirmed_block(
         mut client: BigTable,
         max_decoding_size: usize,
