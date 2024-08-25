@@ -71,54 +71,51 @@ impl Downloader {
                 }
             })
             .collect::<Vec<solana_program::clock::Slot>>();
-        let slot_chunks = slots_to_fetch.chunks(threads);
-        log::info!("beginning indexing");
-        for slot_chunk in slot_chunks {
-            let mut futs = JoinSet::new();
-            for slot in slot_chunk {
-                let slot = *slot;
-                let blocks_tx = blocks_tx.clone();
-                let client = self.conn.client();
-                let max_decoding_size = self.max_decoding_size;
-                futs.spawn(async move {
-                    match Self::get_confirmed_block(client, max_decoding_size, slot).await {
-                        Ok(block) => {
-                            if let Some(block) = block {
-                                let block_height = if let Some(block_height) = block.block_height {
-                                    block_height
-                                } else {
-                                    log::warn!("block({slot}) height is none");
-                                    return;
-                                };
-                                // post process the block to handle encoding and space minimization
-                                match process_block(block, no_minimization) {
-                                    Ok(block) => {
-                                        if let Err(err) = blocks_tx
-                                            .send(BlockInfo {
-                                                block_height,
-                                                slot: Some(slot),
-                                                block,
-                                            })
-                                            .await
-                                        {
-                                            log::error!("failed to send block({slot}) {err:#?}");
-                                        }
+        // instantiate the client which will be cloned between threads
+        let client = self.conn.client();
+        stream::iter(slots_to_fetch).map(|slot| {
+            let blocks_tx = blocks_tx.clone();
+            let client = client.clone();
+            let max_decoding_size = self.max_decoding_size;
+            async move {
+                match Self::get_confirmed_block(client, max_decoding_size, slot).await {
+                    Ok(block) => {
+                        if let Some(block) = block {
+                            let block_height = if let Some(block_height) = block.block_height {
+                                block_height
+                            } else {
+                                log::warn!("block({slot}) height is none");
+                                return;
+                            };
+                            // post process the block to handle encoding and space minimization
+                            match process_block(block, no_minimization) {
+                                Ok(block) => {
+                                    if let Err(err) = blocks_tx
+                                        .send(BlockInfo {
+                                            block_height,
+                                            slot: Some(slot),
+                                            block,
+                                        })
+                                        .await
+                                    {
+                                        log::error!("failed to send block({slot}) {err:#?}");
                                     }
-                                    Err(err) => {
-                                        log::error!("failed to minimize and encode block({slot}) {err:#?}");
-                                    }
+                                }
+                                Err(err) => {
+                                    log::error!("failed to minimize and encode block({slot}) {err:#?}");
                                 }
                             }
                         }
-                        Err(err) => {
-                            log::error!("failed to fetch block({slot}) {err:#?}");
-                        }
                     }
-                });
+                    Err(err) => {
+                        log::error!("failed to fetch block({slot}) {err:#?}");
+                    }
+                }
             }
-            while let Some(_) = futs.join_next().await {}
-            futs.abort_all();
-        }
+        })
+        .buffer_unordered(threads)
+        .collect::<Vec<_>>()
+        .await;
         Ok(())
     }
     /// Downloads multiple blocks at once, returning a vector of vec![(block_slot, block_data)]
