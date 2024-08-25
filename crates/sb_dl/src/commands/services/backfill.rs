@@ -12,8 +12,10 @@ pub async fn backfill(
 ) -> anyhow::Result<()> {
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
     let starting_number = matches.get_one::<i64>("starting-number").unwrap();
+
+    let threads = *matches.get_one::<usize>("threads").unwrap();
     let cfg = Config::load(config_path).await?;
-    let conn_pool = db::new_connection_pool(&cfg.db_url)?;
+    let conn_pool = db::new_connection_pool(&cfg.db_url, threads as u32 * 2)?;
 
 
     {
@@ -25,10 +27,11 @@ pub async fn backfill(
 
 
     {
-        let mut conn = conn_pool.get()?;
+
+        let conn_pool = conn_pool.clone();
         // start the background persistence task
         tokio::task::spawn(
-            async move { block_persistence_loop(&mut conn, failed_blocks_dir, blocks_rx).await },
+            async move { block_persistence_loop(conn_pool, failed_blocks_dir, blocks_rx, threads).await },
         );
     }
 

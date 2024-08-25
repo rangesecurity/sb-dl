@@ -15,7 +15,7 @@ pub async fn fill_missing_slots_no_tx(
     let limit = matches.get_one::<i64>("limit").unwrap();
     let cfg = Config::load(config_path).await?;
     let rpc = Arc::new(RpcClient::new(cfg.rpc_url.clone()));
-    let pool = db::new_connection_pool(&cfg.db_url)?;
+    let pool = db::new_connection_pool(&cfg.db_url, 10)?;
     let mut conn = db::new_connection(&cfg.db_url)?;
     {
 
@@ -68,7 +68,7 @@ pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyh
     let limit = matches.get_one::<i64>("limit").unwrap();
     let cfg = Config::load(config_path).await?;
     let rpc = Arc::new(RpcClient::new(cfg.rpc_url.clone()));
-    let pool = db::new_connection_pool(&cfg.db_url)?;
+    let pool = db::new_connection_pool(&cfg.db_url, 10)?;
     let mut conn = db::new_connection(&cfg.db_url)?;
     {
 

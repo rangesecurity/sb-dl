@@ -33,7 +33,7 @@ pub async fn serve_api(listen_url: &str, db_url: &str) -> anyhow::Result<()> {
 }
 
 pub fn new_router(db_url: &str) -> anyhow::Result<Router> {
-    let db_pool = new_connection_pool(db_url)?;
+    let db_pool = new_connection_pool(db_url, 10)?;
     let app = Router::new()
         .route(
             "/orderedTransfers/:blockNumber",

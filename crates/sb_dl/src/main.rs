@@ -48,22 +48,17 @@ async fn main() -> Result<()> {
                         )
                         .arg(no_minimization_flag())
                         .arg(failed_blocks_flag())
-                        .arg(
-                            Arg::new("threads")
-                            .long("threads")
-                            .help("number of parallel download processes to use")
-                            .value_parser(clap::value_parser!(usize))
-                            .required(false)
-                            .default_value("1")
-                        ),
+                        .arg(threads_flag()),
                     Command::new("backfiller")
                         .about("block backfiller to covers gaps missed by geyser")
                         .arg(no_minimization_flag())
-                        .arg(failed_blocks_flag()),
+                        .arg(failed_blocks_flag())
+                        .arg(threads_flag()),
                     Command::new("geyser-stream")
                         .about("stream blocks in real-time using geyser")
                         .arg(no_minimization_flag())
-                        .arg(failed_blocks_flag()),
+                        .arg(failed_blocks_flag())
+                        .arg(threads_flag()),
                     Command::new("index-idls").about("index anchor idl accounts"),
                     Command::new("index-programs").about("index deployed programs"),
                     Command::new("transfer-flow-api")
@@ -81,6 +76,7 @@ async fn main() -> Result<()> {
                         .value_parser(clap::value_parser!(i64))
                     )
                     .arg(failed_blocks_flag())
+                    .arg(threads_flag()),
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag()),
             Command::new("new-config"),
@@ -226,4 +222,14 @@ fn failed_blocks_flag() -> Arg {
         .help("directory to store failed blocks in")
         .default_value("failed_blocks")
         .required(false)
+}
+
+
+fn threads_flag() -> Arg {
+    Arg::new("threads")
+    .long("threads")
+    .help("number of parallel download processes to use")
+    .value_parser(clap::value_parser!(usize))
+    .required(false)
+    .default_value("1")
 }
