@@ -5,7 +5,7 @@ use {
     }, futures::stream::{self, StreamExt}, solana_sdk::clock::Slot, solana_storage_bigtable::{
         bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
         key_to_slot, slot_to_blocks_key, StoredConfirmedBlock,
-    }, solana_storage_proto::convert::generated, solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock}, std::{collections::HashSet, sync::Arc}, tokio::task::JoinSet,
+    }, solana_storage_proto::convert::generated, solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock}, std::{collections::HashSet, sync::{atomic::{AtomicBool, Ordering}, Arc}}, tokio::task::JoinSet,
 };
 
 #[derive(Clone)]
@@ -47,7 +47,21 @@ impl Downloader {
         limit: Option<u64>,
         no_minimization: bool,
         threads: usize,
+        exit_ch: tokio::sync::oneshot::Receiver<()>
     ) -> anyhow::Result<()> {
+
+        // handle exit signals to prevent the concurrent streams from downloading bigtable blocks
+        // and not being able to persist the data, this does not allow for a graceful exit
+        // but prevents bigtable bandwidth consumption
+
+        let exit = Arc::new(AtomicBool::new(false));
+        {
+            let exit = exit.clone();
+            tokio::task::spawn(async move {
+                let _ = exit_ch.await;
+                exit.store(true, Ordering::SeqCst);
+            });
+    }
         let start = match start {
             Some(start) => start,
             None => 0,
@@ -60,57 +74,61 @@ impl Downloader {
             None => u64::MAX - start,
         };
         log::info!("preparing slots to index");
+        
         // get the list of slots to fetch, excluding any previously indexed slots from the specified range
         let slots_to_fetch = (start..start + limit)
             .into_iter()
-            .filter_map(|slot| {
-                if already_indexed.contains(&slot) {
-                    None
-                } else {
-                    Some(solana_program::clock::Slot::from(slot))
-                }
-            })
+            .filter(|slot| !already_indexed.contains(slot))
             .collect::<Vec<solana_program::clock::Slot>>();
+        
+        log::info!("starting downloader");
+
         // instantiate the client which will be cloned between threads
         let client = self.conn.client();
         stream::iter(slots_to_fetch).map(|slot| {
             let blocks_tx = blocks_tx.clone();
             let client = client.clone();
             let max_decoding_size = self.max_decoding_size;
+            let exit = exit.clone();
             async move {
-                match Self::get_confirmed_block(client, max_decoding_size, slot).await {
-                    Ok(block) => {
-                        if let Some(block) = block {
-                            let block_height = if let Some(block_height) = block.block_height {
-                                block_height
-                            } else {
-                                log::warn!("block({slot}) height is none");
-                                return;
-                            };
-                            // post process the block to handle encoding and space minimization
-                            match process_block(block, no_minimization) {
-                                Ok(block) => {
-                                    if let Err(err) = blocks_tx
-                                        .send(BlockInfo {
-                                            block_height,
-                                            slot: Some(slot),
-                                            block,
-                                        })
-                                        .await
-                                    {
-                                        log::error!("failed to send block({slot}) {err:#?}");
+                if !exit.load(Ordering::SeqCst) {
+                    match Self::get_confirmed_block(client, max_decoding_size, slot).await {
+                        Ok(block) => {
+                            if let Some(block) = block {
+                                let block_height = if let Some(block_height) = block.block_height {
+                                    block_height
+                                } else {
+                                    log::warn!("block({slot}) height is none");
+                                    return;
+                                };
+                                // post process the block to handle encoding and space minimization
+                                match process_block(block, no_minimization) {
+                                    Ok(block) => {
+                                        if let Err(err) = blocks_tx
+                                            .send(BlockInfo {
+                                                block_height,
+                                                slot: Some(slot),
+                                                block,
+                                            })
+                                            .await
+                                        {
+                                            log::error!("failed to send block({slot}) {err:#?}");
+                                        } else {
+                                            log::debug!("processed block({slot})");
+                                        }
                                     }
-                                }
-                                Err(err) => {
-                                    log::error!("failed to minimize and encode block({slot}) {err:#?}");
+                                    Err(err) => {
+                                        log::error!("failed to minimize and encode block({slot}) {err:#?}");
+                                    }
                                 }
                             }
                         }
-                    }
-                    Err(err) => {
-                        log::error!("failed to fetch block({slot}) {err:#?}");
+                        Err(err) => {
+                            log::error!("failed to fetch block({slot}) {err:#?}");
+                        }
                     }
                 }
+
             }
         })
         .buffer_unordered(threads)

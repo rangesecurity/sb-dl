@@ -80,7 +80,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
     );
 
     let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
-
+    let (stop_downloader_tx, stop_downloader_rx) = tokio::sync::oneshot::channel();
     tokio::task::spawn(async move {
         log::info!("starting block_indexing. disable_minimization={no_minimization}");
 
@@ -92,6 +92,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
                 limit,
                 no_minimization,
                 threads,
+                stop_downloader_rx
             )
             .await
         {
@@ -102,7 +103,10 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
         }
     });
 
-    handle_exit(sig_quit, sig_int, sig_term, finished_rx).await
+    let err = handle_exit(sig_quit, sig_int, sig_term, finished_rx).await;
+    // stop the downloader task
+    let _ = stop_downloader_tx.send(());
+    return err
 }
 
 /// Starts the geyser stream block downloader
