@@ -299,6 +299,11 @@ pub async fn block_persistence_loop(
         //);
         match serde_json::to_value(block_info.block) {
             Ok(mut block) => {
+                // sanitize the values first
+                // escape invalid unicode points
+                sanitize_value(&mut block);
+                // replace escaped unicode points with empty string
+                sanitize_for_postgres(&mut block);
                 if client
                     .insert_block(
                         conn,
@@ -308,38 +313,24 @@ pub async fn block_persistence_loop(
                     )
                     .is_err()
                 {
-                    log::warn!("block({slot}) persistence failed, retrying with sanitization");
-                    // escape invalid unicode points
-                    sanitize_value(&mut block);
-                    // replace escaped unicode points with empty string
-                    sanitize_for_postgres(&mut block);
-                    // try to reinsert block
-                    if let Err(err) = client.insert_block(
-                        conn,
-                        block_info.block_height as i64,
-                        Some(slot as i64),
-                        block.clone(),
-                    ) {
-                        log::error!("block({slot}) retry failed {err:#?}");
-                        match serde_json::to_string(&block) {
-                            Ok(block_str) => {
-                                if let Err(err) = tokio::fs::write(
-                                    format!("{failed_blocks_dir}/block_{slot}.json"),
-                                    block_str,
-                                )
-                                .await
-                                {
-                                    log::error!("failed to store failed block({slot}) {err:#?}");
-                                } else {
-                                    log::warn!("block({slot}) failed to persist, saved to {failed_blocks_dir}/block_{slot}.json");
-                                }
-                            }
-                            Err(err) => {
-                                log::error!("failed to serialize block({slot}) {err:#?}");
+                    // block persistence failed despite sanitization persist the data locally
+                    log::warn!("block({slot}) persistence failed");
+                    match serde_json::to_string(&block) {
+                        Ok(block_str) => {
+                            if let Err(err) = tokio::fs::write(
+                                format!("{failed_blocks_dir}/block_{slot}.json"),
+                                block_str,
+                            )
+                            .await
+                            {
+                                log::error!("failed to store failed block({slot}) {err:#?}");
+                            } else {
+                                log::warn!("block({slot}) failed to persist, saved to {failed_blocks_dir}/block_{slot}.json");
                             }
                         }
-                    } else {
-                        log::info!("block({slot}) persisted after sanitization");
+                        Err(err) => {
+                            log::error!("failed to serialize block({slot}) {err:#?}");
+                        }
                     }
                 } else {
                     log::info!("persisted block({slot})");
