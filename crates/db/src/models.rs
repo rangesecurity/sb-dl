@@ -40,6 +40,7 @@ pub struct DbBlocks2 {
     pub slot: Option<i64>,
 }
 
+/// A type which DbBlocks and DbBlocks2 can be converted into to return the same data type
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Blocks {
     pub id: Uuid,
