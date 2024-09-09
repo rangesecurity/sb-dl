@@ -9,7 +9,7 @@ pub enum BlockTableChoice{
 impl TryFrom<u8> for BlockTableChoice {
     type Error = anyhow::Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if value == 0 {
+        if value == 1 {
             return Ok(BlockTableChoice::Blocks)
         } else if value == 2 {
             return Ok(BlockTableChoice::Blocks2)
