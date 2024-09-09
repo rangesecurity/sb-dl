@@ -54,12 +54,20 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
         run_migrations(&mut conn);
 
         let client = db::client::Client {};
-        client
-            .indexed_blocks(&mut conn, blocks_table)
+        let mut blocks_1_indexed = client
+            .indexed_blocks(&mut conn, BlockTableChoice::Blocks)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|block| Some(block? as u64))
-            .collect()
+            .collect::<Vec<_>>();
+        let mut blocks_2_indexed = client
+            .indexed_blocks(&mut conn, BlockTableChoice::Blocks2)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        blocks_1_indexed.append(&mut blocks_2_indexed);
+        blocks_1_indexed.into_iter().collect()
     };
 
     // mark failed blocks as already indexed to avoid redownloading
@@ -425,7 +433,7 @@ async fn process_block(block_info: BlockInfo, conn: &mut PgConnection, failed_bl
             };
             if let Err(err) = err {
                 // block persistence failed despite sanitization persist the data locally
-                log::warn!("block({slot}) persistence failed");
+                log::warn!("block({slot}) persistence failed {err:#?}");
                 match serde_json::to_string(&block) {
                     Ok(block_str) => {
                         if let Err(err) = tokio::fs::write(
