@@ -1,16 +1,29 @@
-use {diesel::{prelude::*, query_builder::BoxedSqlQuery, sql_types::{BigInt, Jsonb, Nullable}}, uuid::Uuid};
+use {anyhow::anyhow, diesel::{prelude::*, query_builder::BoxedSqlQuery, sql_types::{BigInt, Jsonb, Nullable}}, uuid::Uuid};
 
 #[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum BlockTableChoice{
-    Blocks,
-    Blocks2,
+    Blocks = 1,
+    Blocks2 = 2,
+}
+impl TryFrom<u8> for BlockTableChoice {
+    type Error = anyhow::Error;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if value == 0 {
+            return Ok(BlockTableChoice::Blocks)
+        } else if value == 2 {
+            return Ok(BlockTableChoice::Blocks2)
+        } else {
+            Err(anyhow!("invalid block table selection"))
+        }
+    }
 }
 
 #[derive(
     Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable, Default, PartialEq, Eq,
 )]
 #[diesel(table_name = super::schema::blocks)]
-pub struct Blocks {
+pub struct DbBlocks {
     pub id: Uuid,
     pub number: i64,
     pub data: serde_json::Value,
@@ -20,7 +33,15 @@ pub struct Blocks {
     Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable, Default, PartialEq, Eq,
 )]
 #[diesel(table_name = super::schema::blocks_2)]
-pub struct Blocks2 {
+pub struct DbBlocks2 {
+    pub id: Uuid,
+    pub number: i64,
+    pub data: serde_json::Value,
+    pub slot: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Blocks {
     pub id: Uuid,
     pub number: i64,
     pub data: serde_json::Value,
@@ -48,9 +69,9 @@ pub struct Programs {
 #[derive(Insertable)]
 #[diesel(table_name = super::schema::blocks)]
 #[diesel(table_name = super::schema::blocks_2)]
-pub struct NewBlock<'a> {
+pub struct NewBlock{
     pub number: i64,
-    pub data: &'a serde_json::Value,
+    pub data: serde_json::Value,
     pub slot: Option<i64>,
 }
 
@@ -65,22 +86,22 @@ pub struct NewIdl {
 
 #[derive(Insertable)]
 #[diesel(table_name = super::schema::blocks_2)]
-pub struct NewBlock2<'a> {
+pub struct NewBlock2 {
     pub number: i64,
-    pub data: &'a serde_json::Value,
+    pub data: serde_json::Value,
     pub slot: Option<i64>,
 }
 
 pub trait NewBlockTrait {
     fn number(&self) -> i64;
-    fn data(&self) -> &serde_json::Value;
+    fn data(&self) -> serde_json::Value;
     fn slot(&self) -> Option<i64>;
     fn table_choice(&self) -> BlockTableChoice;
 }
 
-impl<'a> NewBlockTrait for NewBlock<'a> {
-    fn data(&self) -> &'a serde_json::Value {
-        &self.data
+impl NewBlockTrait for NewBlock {
+    fn data(&self) -> serde_json::Value {
+        self.data.clone()
     }
     fn number(&self) -> i64 {
         self.number
@@ -92,9 +113,9 @@ impl<'a> NewBlockTrait for NewBlock<'a> {
         BlockTableChoice::Blocks
     }
 }
-impl<'a> NewBlockTrait for NewBlock2<'a> {
-    fn data(&self) -> &'a serde_json::Value {
-        &self.data
+impl NewBlockTrait for NewBlock2 {
+    fn data(&self) -> serde_json::Value {
+        self.data.clone()
     }
     fn number(&self) -> i64 {
         self.number
