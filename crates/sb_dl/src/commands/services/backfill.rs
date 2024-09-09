@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
-use db::{client::{BlockFilter, Client}, migrations::run_migrations};
+use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::BlockTableChoice};
 use sb_dl::{config::Config, services::backfill::Backfiller, types::BlockInfo};
 
 use super::downloaders::block_persistence_loop;
@@ -10,6 +10,8 @@ pub async fn backfill(
     matches: &clap::ArgMatches,
     config_path: &str
 ) -> anyhow::Result<()> {
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
     let starting_number = matches.get_one::<i64>("starting-number").unwrap();
 
@@ -31,7 +33,7 @@ pub async fn backfill(
         let conn_pool = conn_pool.clone();
         // start the background persistence task
         tokio::task::spawn(
-            async move { block_persistence_loop(conn_pool, failed_blocks_dir, blocks_rx, threads).await },
+            async move { block_persistence_loop(conn_pool, failed_blocks_dir, blocks_rx, threads, blocks_table).await },
         );
     }
 
@@ -39,12 +41,12 @@ pub async fn backfill(
 
     let backfiller = Backfiller::new(&cfg.rpc_url);
     let client = Client{};
-    let gap_end = client.find_gap_end(&mut conn, *starting_number)?;
+    let gap_end = client.find_gap_end(&mut conn, *starting_number, blocks_table)?;
 
     // start trying to repair gaps at the block immediately preceeding the current missing block
     for missing_block in *starting_number-1..gap_end {
         // get block info for the previous block which isn't missing
-        let blocks = client.select_block(&mut conn, BlockFilter::Number(missing_block - 1))?;
+        let blocks = client.select_block(&mut conn, BlockFilter::Number(missing_block - 1), blocks_table)?;
         if blocks.is_empty() {
             continue;
         }

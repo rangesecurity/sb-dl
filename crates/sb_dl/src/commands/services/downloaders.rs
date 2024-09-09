@@ -4,7 +4,7 @@ use {
     },
     anyhow::{anyhow, Context},
     clap::ArgMatches,
-    db::migrations::run_migrations,
+    db::{migrations::run_migrations, models::{BlockTableChoice, NewBlock, NewBlock2}},
     diesel::{
         prelude::*,
         r2d2::{ConnectionManager, Pool, PooledConnection},
@@ -28,7 +28,9 @@ use {
 };
 
 /// Starts the big table historical block downloader
-pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {    
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let cfg = Config::load(config_path).await?;
     let start = matches.get_one::<u64>("start").cloned();
     let limit = matches.get_one::<u64>("limit").cloned();
@@ -53,7 +55,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
 
         let client = db::client::Client {};
         client
-            .indexed_blocks(&mut conn)
+            .indexed_blocks(&mut conn, blocks_table)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|block| Some(block? as u64))
@@ -76,7 +78,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads).await },
+        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads, blocks_table).await },
     );
 
     let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
@@ -111,6 +113,8 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
 
 /// Starts the geyser stream block downloader
 pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let cfg = Config::load(config_path).await?;
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
     let threads = *matches.get_one::<usize>("threads").unwrap();
@@ -146,7 +150,7 @@ pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::R
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads).await },
+        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads, blocks_table).await },
     );
 
     // optional value containing error message encountered during program execution
@@ -166,6 +170,8 @@ pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::R
 }
 
 pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let cfg = Config::load(config_path).await?;
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
     let threads = *matches.get_one::<usize>("threads").unwrap();
@@ -192,7 +198,7 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads).await },
+        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads, blocks_table).await },
     );
 
     let backfiller = Backfiller::new(&cfg.rpc_url);
@@ -216,6 +222,8 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
 }
 
 pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let cfg = Config::load(config_path).await?;
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
 
@@ -258,12 +266,23 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
                         continue;
                     }
                 };
-                if let Err(err) = client.insert_block(
-                    &mut conn,
-                    block_height as i64,
-                    Some(slot_number as i64),
-                    block,
-                ) {
+                let err = match blocks_table {
+                    BlockTableChoice::Blocks => client.insert_block(
+                        &mut conn,NewBlock {
+                            number: block_height as i64,
+                            slot: Some(slot_number as i64),
+                            data: block,
+                        }
+                    ),
+                    BlockTableChoice::Blocks2 => client.insert_block(
+                        &mut conn,NewBlock2 {
+                            number: block_height as i64,
+                            slot: Some(slot_number as i64),
+                            data: block,
+                        }
+                    )
+                };
+                if let Err(err) = err {
                     log::error!("failed to insert block({slot_number}) {err:#?}");
                 } else {
                     log::info!("inserted block({slot_number})");
@@ -294,6 +313,7 @@ pub async fn block_persistence_loop(
     failed_blocks_dir: String,
     mut blocks_rx: tokio::sync::mpsc::Receiver<BlockInfo>,
     threads: usize,
+    block_table_choice: BlockTableChoice
 ) {
     let semaphore = Arc::new(Semaphore::new(threads));
 
@@ -306,7 +326,7 @@ pub async fn block_persistence_loop(
                     Ok(mut conn) => {
                         let failed_blocks_dir = failed_blocks_dir.clone();
                         tokio::task::spawn(async move {
-                            process_block(block_info, &mut conn, failed_blocks_dir, client).await;
+                            process_block(block_info, &mut conn, failed_blocks_dir, client, block_table_choice).await;
                             drop(permit);
                         });
                     }
@@ -356,7 +376,7 @@ async fn handle_exit(
     }
 }
 
-async fn process_block(block_info: BlockInfo, conn: &mut PgConnection, failed_blocks_dir: String, client: db::client::Client) {
+async fn process_block(block_info: BlockInfo, conn: &mut PgConnection, failed_blocks_dir: String, client: db::client::Client, block_table_choice: BlockTableChoice) {
     // we cant rely on parentSlot + 1, as some slots may be skipped
     let slot = if let Some(slot) = block_info.slot {
         slot
@@ -387,15 +407,23 @@ async fn process_block(block_info: BlockInfo, conn: &mut PgConnection, failed_bl
             sanitize_value(&mut block);
             // replace escaped unicode points with empty string
             sanitize_for_postgres(&mut block);
-            if client
-                .insert_block(
-                    conn,
-                    block_info.block_height as i64,
-                    Some(slot as i64),
-                    block.clone(),
+            let err: Result<(), anyhow::Error> = match block_table_choice {
+                BlockTableChoice::Blocks => client.insert_block(
+                    conn,NewBlock {
+                        number: block_info.block_height as i64,
+                        slot: Some(slot as i64),
+                        data: block.clone(),
+                    }
+                ),
+                BlockTableChoice::Blocks2 => client.insert_block(
+                    conn,NewBlock2 {
+                        number: block_info.block_height as i64,
+                        slot: Some(slot as i64),
+                        data: block.clone(),
+                    }
                 )
-                .is_err()
-            {
+            };
+            if let Err(err) = err {
                 // block persistence failed despite sanitization persist the data locally
                 log::warn!("block({slot}) persistence failed");
                 match serde_json::to_string(&block) {

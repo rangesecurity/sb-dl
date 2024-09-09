@@ -1,23 +1,13 @@
 use {
-    crate::transfer_flow::{create_ordered_transfer_for_block, types::OrderedTransfers},
-    anyhow::Context,
-    axum::{
+    crate::transfer_flow::{create_ordered_transfer_for_block, types::OrderedTransfers}, anyhow::Context, axum::{
         extract::{Extension, Path},
         http::StatusCode,
         response::IntoResponse,
         routing::get,
         Json, Router,
-    },
-    db::{client::BlockFilter, new_connection_pool},
-    diesel::{
-        r2d2::{ConnectionManager, Pool, PooledConnection},
-
-        prelude::*,
-    },
-    serde::{Deserialize, Serialize},
-    solana_transaction_status::UiConfirmedBlock,
-    std::sync::Arc,
-    chrono::prelude::*,
+    }, chrono::prelude::*, db::{client::BlockFilter, models::BlockTableChoice, new_connection_pool}, diesel::{
+        prelude::*, r2d2::{ConnectionManager, Pool, PooledConnection}
+    }, serde::{Deserialize, Serialize}, solana_transaction_status::UiConfirmedBlock, std::sync::Arc
 };
 #[derive(Clone)]
 pub struct State {
@@ -36,7 +26,7 @@ pub fn new_router(db_url: &str) -> anyhow::Result<Router> {
     let db_pool = new_connection_pool(db_url, 10)?;
     let app = Router::new()
         .route(
-            "/orderedTransfers/:blockNumber",
+            "/orderedTransfers/:blockNumber/:tableNumber",
             get(ordered_transfers_for_block),
         )
         .layer(Extension(Arc::new(State { db_pool })));
@@ -45,13 +35,25 @@ pub fn new_router(db_url: &str) -> anyhow::Result<Router> {
 
 async fn ordered_transfers_for_block(
     Path(number): Path<i64>,
+    Path(table_number): Path<i64>,
     Extension(state): Extension<Arc<State>>,
 ) -> impl IntoResponse {
+    let block_table_choice: BlockTableChoice = match TryFrom::try_from(table_number as u8) {
+        Ok(choice) => choice,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(Error {
+                    msg: "invalid table choice, must be one of [1, 2]".to_string()
+                }),
+            ).into_response()
+        }
+    };
     match state.db_pool.get() {
         Ok(mut db_conn) => {
 
                     let client = db::client::Client {};
-                    match client.select_block(&mut db_conn, BlockFilter::Number(number)) {
+                    match client.select_block(&mut db_conn, BlockFilter::Number(number), block_table_choice) {
                         Ok(mut blocks) => {
                             if blocks.is_empty() {
                                 return (

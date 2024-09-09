@@ -1,6 +1,6 @@
 use {
     anyhow::anyhow,
-    db::{client::BlockFilter, new_connection},
+    db::{client::BlockFilter, models::BlockTableChoice, new_connection},
     sb_dl::{
         config::Config,
         transfer_flow::{
@@ -22,6 +22,7 @@ pub async fn create_transfer_graph_for_tx(
     matches: &clap::ArgMatches,
     config_path: &str,
 ) -> anyhow::Result<()> {
+    log::warn!("assumes querying blocks table");
     let cfg: Config = Config::load(config_path).await?;
     // slot to pull tx from
     let slot_number = matches.get_one::<i64>("slot-number").unwrap();
@@ -29,7 +30,7 @@ pub async fn create_transfer_graph_for_tx(
     let tx_hash = matches.get_one::<String>("tx-hash").unwrap();
     let mut db_conn = new_connection(&cfg.db_url)?;
     let client = db::client::Client {};
-    let mut block = client.select_block(&mut db_conn, BlockFilter::Slot(*slot_number))?;
+    let mut block = client.select_block(&mut db_conn, BlockFilter::Slot(*slot_number), BlockTableChoice::Blocks)?;
     let block = if block.is_empty() {
         return Err(anyhow!("no block found"));
     } else {
@@ -49,13 +50,14 @@ pub async fn create_ordered_transfers_for_entire_block(
     matches: &clap::ArgMatches,
     config_path: &str,
 ) -> anyhow::Result<()> {
+    log::warn!("assumes querying blocks table");
     let cfg: Config = Config::load(config_path).await?;
     // slot to pull tx from
     let slot_number = matches.get_one::<i64>("slot-number").unwrap();
     // tx to generate graph for
     let mut db_conn = new_connection(&cfg.db_url)?;
     let client = db::client::Client {};
-    let mut block = client.select_block(&mut db_conn, BlockFilter::Slot(*slot_number))?;
+    let mut block = client.select_block(&mut db_conn, BlockFilter::Slot(*slot_number), BlockTableChoice::Blocks)?;
     let block = if block.is_empty() {
         return Err(anyhow!("no block found"));
     } else {
