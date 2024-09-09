@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context};
 use diesel::{prelude::*, sql_types::BigInt};
 use uuid::Uuid;
 
-use crate::models::{Blocks, Idls, NewBlock, Programs};
+use crate::models::{BlockTableChoice, Blocks, Idls, NewBlock, NewBlockTrait, Programs};
 
 #[derive(Clone, Copy)]
 pub struct Client {}
@@ -91,27 +91,6 @@ impl Client {
                 .load(conn)?),
             BlockFilter::All => Ok(blocks.select(Blocks::as_select()).load(conn)?),
         }
-    }
-    /// Inserts a new block
-    pub fn insert_block(
-        self,
-        conn: &mut PgConnection,
-        block_number: i64,
-        slot_number: Option<i64>,
-        block_data: serde_json::Value,
-    ) -> anyhow::Result<()> {
-        use crate::schema::blocks::dsl::*;
-        NewBlock {
-            number: block_number,
-            data: block_data,
-            slot: slot_number,
-        }
-        .insert_into(blocks)
-        // silently ignore duplicate constriants
-        .on_conflict_do_nothing()
-        .execute(conn)
-        .with_context(|| "failed to insert block")?;
-        Ok(())
     }
     /// Used to update blocks which have missing slot information
     pub fn update_block_slot(
@@ -273,5 +252,33 @@ impl Client {
         }
 
         Ok(end_number)
+    }
+
+    pub fn insert_block<T>(conn: &mut PgConnection, new_block: T) -> anyhow::Result<()>
+    where
+        T: NewBlockTrait
+    {
+        let nb = NewBlock {
+            number: new_block.number(),
+            data: new_block.data(),
+            slot: new_block.slot(),
+        };
+        match new_block.table_choice() {
+            BlockTableChoice::Blocks => {
+                nb
+                .insert_into(crate::schema::blocks::table)
+                .on_conflict_do_nothing()
+                .execute(conn)
+                .with_context(|| "failed to insert into blocks")?;
+            },
+            BlockTableChoice::Blocks2 => {
+                nb
+                .insert_into(crate::schema::blocks_2::table)
+                .on_conflict_do_nothing()
+                .execute(conn)
+                .with_context(|| "failed to insert into blocks")?;
+            }
+        }
+        Ok(())
     }
 }
