@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use anyhow::{anyhow, Context};
 use clap::ArgMatches;
-use db::{client::{BlockFilter, Client}, migrations::run_migrations};
+use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::BlockTableChoice};
 use sb_dl::config::Config;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
@@ -12,6 +12,7 @@ pub async fn fill_missing_slots_no_tx(
     matches: &ArgMatches,
     config_path: &str
 ) -> anyhow::Result<()> {
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
     let limit = matches.get_one::<i64>("limit").unwrap();
     let cfg = Config::load(config_path).await?;
     let rpc = Arc::new(RpcClient::new(cfg.rpc_url.clone()));
@@ -38,7 +39,7 @@ pub async fn fill_missing_slots_no_tx(
             log::warn!("found null slot with txs");
             continue;
         }
-        let next_block: UiConfirmedBlock = match client.select_block(&mut conn, BlockFilter::Number(block.number+1)) {
+        let next_block: UiConfirmedBlock = match client.select_block(&mut conn, BlockFilter::Number(block.number+1), blocks_table) {
             Ok(mut blocks) => if blocks.is_empty() {
                 log::warn!("failed to find next block(current={})", block.number);
                 continue;
@@ -52,7 +53,7 @@ pub async fn fill_missing_slots_no_tx(
         };
         log::info!("found missing_slot(slot={}, block={}, next_block={})", next_block.parent_slot, block.number, block.number+1);
         // confirm no block with the missing slot exists
-        if let Ok(blocks) = client.select_block(&mut conn, BlockFilter::Slot(next_block.parent_slot as i64)) {
+        if let Ok(blocks) = client.select_block(&mut conn, BlockFilter::Slot(next_block.parent_slot as i64), blocks_table) {
             if !blocks.is_empty() {
                 log::warn!("slot calculation isnt working");
             }
@@ -64,7 +65,9 @@ pub async fn fill_missing_slots_no_tx(
     Ok(())
 }
 
-pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {    
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let limit = matches.get_one::<i64>("limit").unwrap();
     let cfg = Config::load(config_path).await?;
     let rpc = Arc::new(RpcClient::new(cfg.rpc_url.clone()));
@@ -138,6 +141,7 @@ pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyh
                                     block.id,
                                     new_block_number as i64,
                                     slot as i64,
+                                    blocks_table
                                 ) {
                                     log::error!("failed to update_block_slot(old_block_number={}, new_block_number={new_block_number}, slot={slot}) {err:#?}", block.number);
                                 }
@@ -161,7 +165,9 @@ pub async fn fill_missing_slots(matches: &ArgMatches, config_path: &str) -> anyh
     Ok(())
 }
 
-pub async fn repair_invalid_slots(config_path: &str) -> anyhow::Result<()> {
+pub async fn repair_invalid_slots(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {    
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let cfg = Config::load(config_path).await?;
     let rpc = RpcClient::new(cfg.rpc_url.clone());
     let mut conn = db::new_connection(&cfg.db_url)?;
@@ -172,13 +178,13 @@ pub async fn repair_invalid_slots(config_path: &str) -> anyhow::Result<()> {
     let client = db::client::Client {};
     // numbero f the block to repair, initially set to the very first block available
     let mut block_number = client
-        .select_block(&mut conn, BlockFilter::FirstBlock)
+        .select_block(&mut conn, BlockFilter::FirstBlock, blocks_table)
         .unwrap()[0]
         .number;
 
     loop {
         log::info!("checking block({block_number}");
-        let mut block = client.select_block(&mut conn, BlockFilter::Number(block_number))?;
+        let mut block = client.select_block(&mut conn, BlockFilter::Number(block_number), blocks_table)?;
         let mut block = if block.is_empty() {
             block_number -= 1;
             continue;
@@ -207,7 +213,7 @@ pub async fn repair_invalid_slots(config_path: &str) -> anyhow::Result<()> {
             }
         }
 
-        client.update_slot(&mut conn, block.number, slot as i64)?;
+        client.update_slot(&mut conn, block.number, slot as i64, blocks_table)?;
         log::info!(
             "repaired block(number={}, slot={slot}, tx={sample_tx_hash})",
             block.number
@@ -222,12 +228,14 @@ pub async fn repair_invalid_slots(config_path: &str) -> anyhow::Result<()> {
 pub async fn find_gap_end(
     matches: &clap::ArgMatches,
     config_path: &str
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()> {    
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let starting_number = matches.get_one::<i64>("starting-number").unwrap();
     let cfg = Config::load(config_path).await?;
     let mut conn = db::new_connection(&cfg.db_url)?;
     let client = Client{};
-    let gap_end = client.find_gap_end(&mut conn, *starting_number)?;
+    let gap_end = client.find_gap_end(&mut conn, *starting_number, blocks_table)?;
     log::info!("found_gap(start={starting_number}, end={gap_end})");
     Ok(())
 }
