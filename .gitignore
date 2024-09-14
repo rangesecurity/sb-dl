@@ -8,3 +8,5 @@ failed_blocks/
 ansible/inventories/host_vars/
 
 config.yaml.dev
+
+sb_dl
