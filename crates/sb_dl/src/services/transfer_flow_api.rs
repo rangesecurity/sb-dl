@@ -34,8 +34,7 @@ pub fn new_router(db_url: &str) -> anyhow::Result<Router> {
 }
 
 async fn ordered_transfers_for_block(
-    Path(number): Path<i64>,
-    Path(table_number): Path<i64>,
+    Path((number, table_number)): Path<(i64, i64)>,
     Extension(state): Extension<Arc<State>>,
 ) -> impl IntoResponse {
     let block_table_choice: BlockTableChoice = match TryFrom::try_from(table_number as u8) {
