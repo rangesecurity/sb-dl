@@ -5,6 +5,7 @@ cli:
 .PHONY: cli-release
 cli-release:
 	cargo build --release --bin sb_dl
+	cp target/release/sb_dl .
 
 .PHONY: format
 format:
