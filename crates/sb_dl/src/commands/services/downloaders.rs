@@ -2,10 +2,14 @@ use {
     super::super::utils::{
         get_failed_blocks, load_failed_blocks, sanitize_for_postgres, sanitize_value,
     },
-    anyhow::anyhow,
+    anyhow::{anyhow, Context},
     clap::ArgMatches,
-    db::migrations::run_migrations,
-    diesel::PgConnection,
+    db::{migrations::run_migrations, models::{BlockTableChoice, NewBlock, NewBlock2}},
+    diesel::{
+        prelude::*,
+        r2d2::{ConnectionManager, Pool, PooledConnection},
+        PgConnection,
+    },
     sb_dl::{
         config::Config,
         services::{
@@ -16,17 +20,23 @@ use {
         types::BlockInfo,
     },
     solana_transaction_status::UiConfirmedBlock,
-    std::collections::HashSet,
-    tokio::signal::unix::{signal, Signal, SignalKind},
+    std::{collections::HashSet, sync::Arc},
+    tokio::{
+        signal::unix::{signal, Signal, SignalKind},
+        sync::Semaphore,
+    },
 };
 
 /// Starts the big table historical block downloader
-pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {    
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let cfg = Config::load(config_path).await?;
     let start = matches.get_one::<u64>("start").cloned();
     let limit = matches.get_one::<u64>("limit").cloned();
     let no_minimization = matches.get_flag("no-minimization");
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
+    let threads = *matches.get_one::<usize>("threads").unwrap();
 
     // create failed blocks directory, ignoring error (its already created)
     let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
@@ -44,42 +54,56 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
         run_migrations(&mut conn);
 
         let client = db::client::Client {};
-        client
-            .indexed_blocks(&mut conn)
+        let mut blocks_1_indexed = client
+            .indexed_blocks(&mut conn, BlockTableChoice::Blocks)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|block| Some(block? as u64))
-            .collect()
+            .collect::<Vec<_>>();
+        let mut blocks_2_indexed = client
+            .indexed_blocks(&mut conn, BlockTableChoice::Blocks2)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        blocks_1_indexed.append(&mut blocks_2_indexed);
+        blocks_1_indexed.into_iter().collect()
     };
 
     // mark failed blocks as already indexed to avoid redownloading
     already_indexed.extend(failed_blocks.iter());
 
-    let downloader = Downloader::new(cfg.bigtable).await?;
+    let downloader = Arc::new(Downloader::new(cfg.bigtable).await?);
 
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
-    let (blocks_tx, blocks_rx) =
-        tokio::sync::mpsc::channel::<BlockInfo>(limit.unwrap_or(1_000) as usize);
+    let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<BlockInfo>(10_000 as usize);
 
     let sig_quit = signal(SignalKind::quit())?;
     let sig_int = signal(SignalKind::interrupt())?;
     let sig_term = signal(SignalKind::terminate())?;
 
-    // if we fail to connect to postgres, we should terminate the thread
-    let conn = db::new_connection(&cfg.db_url)?;
+    let pool = db::new_connection_pool(&cfg.db_url, threads as u32 *2)?;
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(conn, failed_blocks_dir, blocks_rx).await },
+        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads, blocks_table).await },
     );
 
     let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
-
+    let (stop_downloader_tx, stop_downloader_rx) = tokio::sync::oneshot::channel();
     tokio::task::spawn(async move {
         log::info!("starting block_indexing. disable_minimization={no_minimization}");
 
         if let Err(err) = downloader
-            .start(blocks_tx, already_indexed, start, limit, no_minimization)
+            .start(
+                blocks_tx,
+                already_indexed,
+                start,
+                limit,
+                no_minimization,
+                threads,
+                stop_downloader_rx
+            )
             .await
         {
             let _ = finished_tx.send(Some(format!("downloader failed {err:#?}")));
@@ -89,14 +113,20 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
         }
     });
 
-    handle_exit(sig_quit, sig_int, sig_term, finished_rx).await
+    let err = handle_exit(sig_quit, sig_int, sig_term, finished_rx).await;
+    // stop the downloader task
+    let _ = stop_downloader_tx.send(());
+    return err
 }
 
 /// Starts the geyser stream block downloader
 pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let cfg = Config::load(config_path).await?;
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
-
+    let threads = *matches.get_one::<usize>("threads").unwrap();
+    
     // create failed blocks directory, ignoring error (its already created)
     let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
 
@@ -124,12 +154,11 @@ pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::R
     let sig_int = signal(SignalKind::interrupt())?;
     let sig_term = signal(SignalKind::terminate())?;
 
-    // if we fail to connect to postgres, we should terminate the thread
-    let conn = db::new_connection(&cfg.db_url)?;
+    let pool = db::new_connection_pool(&cfg.db_url, threads as u32 *2)?;
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(conn, failed_blocks_dir, blocks_rx).await },
+        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads, blocks_table).await },
     );
 
     // optional value containing error message encountered during program execution
@@ -149,8 +178,11 @@ pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::R
 }
 
 pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let cfg = Config::load(config_path).await?;
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
+    let threads = *matches.get_one::<usize>("threads").unwrap();
 
     // create failed blocks directory, ignoring error (its already created)
     let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
@@ -164,14 +196,17 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
     let sig_int = signal(SignalKind::interrupt())?;
     let sig_term = signal(SignalKind::terminate())?;
 
-    // if we fail to connect to postgres, we should terminate the thread
-    let mut conn = db::new_connection(&cfg.db_url)?;
+    {
+        // if we fail to connect to postgres, we should terminate the thread
+        let mut conn = db::new_connection(&cfg.db_url)?;
 
-    run_migrations(&mut conn);
+        run_migrations(&mut conn);
+    }
+    let pool = db::new_connection_pool(&cfg.db_url, threads as u32 *2)?;
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(conn, failed_blocks_dir, blocks_rx).await },
+        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads, blocks_table).await },
     );
 
     let backfiller = Backfiller::new(&cfg.rpc_url);
@@ -180,7 +215,10 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
 
     tokio::task::spawn(async move {
         log::info!("starting backfiller. disable_minimization={no_minimization}");
-        if let Err(err) = backfiller.start(blocks_tx, no_minimization).await {
+        if let Err(err) = backfiller
+            .automatic_backfill(blocks_tx, no_minimization)
+            .await
+        {
             let _ = finished_tx.send(Some(format!("backfiller failed {err:#?}")));
         } else {
             log::info!("backfiller finished");
@@ -192,6 +230,8 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
 }
 
 pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+
     let cfg = Config::load(config_path).await?;
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
 
@@ -234,12 +274,23 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
                         continue;
                     }
                 };
-                if let Err(err) = client.insert_block(
-                    &mut conn,
-                    block_height as i64,
-                    Some(slot_number as i64),
-                    block,
-                ) {
+                let err = match blocks_table {
+                    BlockTableChoice::Blocks => client.insert_block(
+                        &mut conn,NewBlock {
+                            number: block_height as i64,
+                            slot: Some(slot_number as i64),
+                            data: block,
+                        }
+                    ),
+                    BlockTableChoice::Blocks2 => client.insert_block(
+                        &mut conn,NewBlock2 {
+                            number: block_height as i64,
+                            slot: Some(slot_number as i64),
+                            data: block,
+                        }
+                    )
+                };
+                if let Err(err) = err {
                     log::error!("failed to insert block({slot_number}) {err:#?}");
                 } else {
                     log::info!("inserted block({slot_number})");
@@ -265,87 +316,36 @@ pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> an
 }
 
 // shared logic responsible for persisting blocks to the database
-async fn block_persistence_loop(
-    mut conn: PgConnection,
+pub async fn block_persistence_loop(
+    pool: Pool<ConnectionManager<PgConnection>>,
     failed_blocks_dir: String,
     mut blocks_rx: tokio::sync::mpsc::Receiver<BlockInfo>,
+    threads: usize,
+    block_table_choice: BlockTableChoice
 ) {
+    let semaphore = Arc::new(Semaphore::new(threads));
+
     let client = db::client::Client {};
 
     while let Some(block_info) = blocks_rx.recv().await {
-        // we cant rely on parentSlot + 1, as some slots may be skipped
-        let slot = if let Some(slot) = block_info.slot {
-            slot
-        } else {
-            log::warn!("slot is None for block(height={})", block_info.block_height);
-            continue;
-        };
-
-        // uncomment to display logs which can be used to verify the above statement
-        //let sample_tx = block.transactions.clone().and_then(|vec| vec.into_iter().next());
-        //let sample_tx_hash = if let Some(tx) = sample_tx {
-        //    if let EncodedTransaction::Json(tx)  = &tx.transaction {
-        //        tx.signatures.clone()
-        //    } else {
-        //        vec![]
-        //    }
-        //} else {
-        //    vec![]
-        //};
-        //log::info!(
-        //    "block(slot={slot}, height={block_number}, parent_slot={}, block_hash={}, sample_tx_hash={:?})",
-        //    block.parent_slot, block.blockhash, sample_tx_hash
-        //);
-        match serde_json::to_value(block_info.block) {
-            Ok(mut block) => {
-                if client
-                    .insert_block(
-                        &mut conn,
-                        block_info.block_height as i64,
-                        Some(slot as i64),
-                        block.clone(),
-                    )
-                    .is_err()
-                {
-                    log::warn!("block({slot}) persistence failed, retrying with sanitization");
-                    // escape invalid unicode points
-                    sanitize_value(&mut block);
-                    // replace escaped unicode points with empty string
-                    sanitize_for_postgres(&mut block);
-                    // try to reinsert block
-                    if let Err(err) = client.insert_block(
-                        &mut conn,
-                        block_info.block_height as i64,
-                        Some(slot as i64),
-                        block.clone(),
-                    ) {
-                        log::error!("block({slot}) retry failed {err:#?}");
-                        match serde_json::to_string(&block) {
-                            Ok(block_str) => {
-                                if let Err(err) = tokio::fs::write(
-                                    format!("{failed_blocks_dir}/block_{slot}.json"),
-                                    block_str,
-                                )
-                                .await
-                                {
-                                    log::error!("failed to store failed block({slot}) {err:#?}");
-                                } else {
-                                    log::warn!("block({slot}) failed to persist, saved to {failed_blocks_dir}/block_{slot}.json");
-                                }
-                            }
-                            Err(err) => {
-                                log::error!("failed to serialize block({slot}) {err:#?}");
-                            }
-                        }
-                    } else {
-                        log::info!("block({slot}) persisted after sanitization");
+        match semaphore.clone().acquire_owned().await {
+            Ok(permit) => {
+                match pool.get() {
+                    Ok(mut conn) => {
+                        let failed_blocks_dir = failed_blocks_dir.clone();
+                        tokio::task::spawn(async move {
+                            process_block(block_info, &mut conn, failed_blocks_dir, client, block_table_choice).await;
+                            drop(permit);
+                        });
                     }
-                } else {
-                    log::info!("persisted block({slot})");
+                    Err(err) => {
+                        log::error!("failed to get pool connection {err:#?}");
+                    }
                 }
             }
             Err(err) => {
-                log::error!("failed to serialize block({slot}) {err:#?}");
+                log::error!("failed to acquire permit {err:#?}");
+                return;
             }
         }
     }
@@ -380,6 +380,84 @@ async fn handle_exit(
                 // underlying channel had an error
                 Err(err) => return Err(anyhow!(err))
             }
+        }
+    }
+}
+
+async fn process_block(block_info: BlockInfo, conn: &mut PgConnection, failed_blocks_dir: String, client: db::client::Client, block_table_choice: BlockTableChoice) {
+    // we cant rely on parentSlot + 1, as some slots may be skipped
+    let slot = if let Some(slot) = block_info.slot {
+        slot
+    } else {
+        log::warn!("slot is None for block(height={})", block_info.block_height);
+        return;
+    };
+
+    // uncomment to display logs which can be used to verify the above statement
+    //let sample_tx = block.transactions.clone().and_then(|vec| vec.into_iter().next());
+    //let sample_tx_hash = if let Some(tx) = sample_tx {
+    //    if let EncodedTransaction::Json(tx)  = &tx.transaction {
+    //        tx.signatures.clone()
+    //    } else {
+    //        vec![]
+    //    }
+    //} else {
+    //    vec![]
+    //};
+    //log::info!(
+    //    "block(slot={slot}, height={block_number}, parent_slot={}, block_hash={}, sample_tx_hash={:?})",
+    //    block.parent_slot, block.blockhash, sample_tx_hash
+    //);
+    match serde_json::to_value(block_info.block) {
+        Ok(mut block) => {
+            // sanitize the values first
+            // escape invalid unicode points
+            sanitize_value(&mut block);
+            // replace escaped unicode points with empty string
+            sanitize_for_postgres(&mut block);
+            let err: Result<(), anyhow::Error> = match block_table_choice {
+                BlockTableChoice::Blocks => client.insert_block(
+                    conn,NewBlock {
+                        number: block_info.block_height as i64,
+                        slot: Some(slot as i64),
+                        data: block.clone(),
+                    }
+                ),
+                BlockTableChoice::Blocks2 => client.insert_block(
+                    conn,NewBlock2 {
+                        number: block_info.block_height as i64,
+                        slot: Some(slot as i64),
+                        data: block.clone(),
+                    }
+                )
+            };
+            if let Err(err) = err {
+                // block persistence failed despite sanitization persist the data locally
+                log::warn!("block({slot}) persistence failed {err:#?}");
+                match serde_json::to_string(&block) {
+                    Ok(block_str) => {
+                        if let Err(err) = tokio::fs::write(
+                            format!("{failed_blocks_dir}/block_{slot}.json"),
+                            block_str,
+                        )
+                        .await
+                        {
+                            log::error!("failed to store failed block({slot}) {err:#?}");
+                        } else {
+                            log::warn!("block({slot}) failed to persist, saved to {failed_blocks_dir}/block_{slot}.json");
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("failed to serialize block({slot}) {err:#?}");
+                    }
+                }
+            } else {
+                log::info!("persisted block({slot})");
+                drop(block);
+            }
+        }
+        Err(err) => {
+            log::error!("failed to serialize block({slot}) {err:#?}");
         }
     }
 }

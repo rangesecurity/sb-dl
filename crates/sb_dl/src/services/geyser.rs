@@ -24,6 +24,9 @@ pub async fn new_geyser_client(
         .x_token(token.to_string().into())?
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(10))
+        .keep_alive_while_idle(true)
+        .http2_keep_alive_interval(Duration::from_secs(10))
+        .keep_alive_timeout(Duration::from_secs(20))
         .max_decoding_message_size(max_decoding_size)
         .max_encoding_message_size(max_encoding_size)
         .tcp_nodelay(true)

@@ -1,0 +1,16 @@
+[Unit]
+Description=block gap repair service
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ app_root }}/gap_fill.sh
+User=range
+Group=range
+
+# Restart every >2 seconds to avoid StartLimitInterval failure
+RestartSec=30
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

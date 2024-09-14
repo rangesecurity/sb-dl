@@ -14,6 +14,17 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    blocks_2 (id) {
+        id -> Uuid,
+        number -> Int8,
+        slot -> Nullable<Int8>,
+        data -> Jsonb,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     idls (id, begin_height) {
         id -> Varchar,
         begin_height -> Int8,
@@ -33,4 +44,9 @@ diesel::table! {
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(blocks, idls, programs,);
+diesel::allow_tables_to_appear_in_same_query!(
+    blocks,
+    blocks_2,
+    idls,
+    programs,
+);
