@@ -3,6 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use anyhow::{anyhow, Context};
 use clap::ArgMatches;
 use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::BlockTableChoice};
+use futures::StreamExt;
 use sb_dl::config::Config;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
@@ -286,3 +287,20 @@ async fn get_slot_for_block(
 }
 
 
+pub async fn stream_blocks_changes(
+    config_path: &str
+) -> anyhow::Result<()> {
+    let cfg = Config::load(config_path).await?;
+    {
+
+        let mut conn = db::new_connection(&cfg.db_url)?;
+        // perform db migrations
+        run_migrations(&mut conn);
+    }
+
+    let mut blocks_notification = db::blocks_stream::BlocksStreamClient::new(&cfg.db_url).await?;
+    while let Some(notif) = blocks_notification.next().await {
+        log::info!("new notification {notif:#?}");
+    }
+    Ok(())
+}
