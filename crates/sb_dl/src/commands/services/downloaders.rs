@@ -1,16 +1,11 @@
 use {
     super::super::utils::{
         get_failed_blocks, load_failed_blocks, sanitize_for_postgres, sanitize_value,
-    },
-    anyhow::{anyhow, Context},
-    clap::ArgMatches,
-    db::{migrations::run_migrations, models::{BlockTableChoice, NewBlock, NewBlock2}},
-    diesel::{
+    }, crate::commands::handle_exit, anyhow::{anyhow, Context}, clap::ArgMatches, db::{migrations::run_migrations, models::{BlockTableChoice, NewBlock, NewBlock2}}, diesel::{
         prelude::*,
         r2d2::{ConnectionManager, Pool, PooledConnection},
         PgConnection,
-    },
-    sb_dl::{
+    }, sb_dl::{
         config::Config,
         services::{
             backfill::Backfiller,
@@ -18,13 +13,10 @@ use {
             geyser::{new_geyser_client, subscribe_blocks},
         },
         types::BlockInfo,
-    },
-    solana_transaction_status::UiConfirmedBlock,
-    std::{collections::HashSet, sync::Arc},
-    tokio::{
+    }, solana_transaction_status::UiConfirmedBlock, std::{collections::HashSet, sync::Arc}, tokio::{
         signal::unix::{signal, Signal, SignalKind},
         sync::Semaphore,
-    },
+    }
 };
 
 /// Starts the big table historical block downloader
@@ -351,38 +343,6 @@ pub async fn block_persistence_loop(
     }
 }
 
-async fn handle_exit(
-    mut sig_quit: Signal,
-    mut sig_int: Signal,
-    mut sig_term: Signal,
-    finished_rx: tokio::sync::oneshot::Receiver<Option<String>>,
-) -> anyhow::Result<()> {
-    // handle exit routines
-    tokio::select! {
-        _ = sig_quit.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_int.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_term.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        msg = finished_rx => {
-            match msg {
-                // service encountered error
-                Ok(Some(msg)) => return Err(anyhow!(msg)),
-                // service finished without error
-                Ok(None) => return Ok(()),
-                // underlying channel had an error
-                Err(err) => return Err(anyhow!(err))
-            }
-        }
-    }
-}
 
 async fn process_block(block_info: BlockInfo, conn: &mut PgConnection, failed_blocks_dir: String, client: db::client::Client, block_table_choice: BlockTableChoice) {
     // we cant rely on parentSlot + 1, as some slots may be skipped
