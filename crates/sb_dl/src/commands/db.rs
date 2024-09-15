@@ -285,22 +285,3 @@ async fn get_slot_for_block(
     };
     return Ok(Some((slot, sample_tx_hash)));
 }
-
-
-pub async fn stream_blocks_changes(
-    config_path: &str
-) -> anyhow::Result<()> {
-    let cfg = Config::load(config_path).await?;
-    {
-
-        let mut conn = db::new_connection(&cfg.db_url)?;
-        // perform db migrations
-        run_migrations(&mut conn);
-    }
-
-    let mut blocks_notification = db::blocks_stream::BlocksStreamClient::new(&cfg.db_url).await?;
-    while let Some(notif) = blocks_notification.next().await {
-        log::info!("new notification {notif:#?}");
-    }
-    Ok(())
-}

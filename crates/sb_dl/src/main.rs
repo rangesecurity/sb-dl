@@ -81,6 +81,21 @@ async fn main() -> Result<()> {
                     .arg(failed_blocks_flag())
                     .arg(threads_flag())
                     .arg(block_table_choice_flag()),
+                    Command::new("transfer-parser")
+                    .about("transfer parsing service to push decoded transfers into elasticsearch")
+                    .arg(
+                        Arg::new("start")
+                        .long("start")
+                        .help("starting block")
+                        .value_parser(clap::value_parser!(i64))
+                    )
+                    .arg(
+                        Arg::new("end")
+                        .long("end")
+                        .help("ending block")
+                        .value_parser(clap::value_parser!(i64))   
+                    )
+                    .arg(block_table_choice_flag())
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag())
             .arg(block_table_choice_flag()),
@@ -149,7 +164,6 @@ async fn main() -> Result<()> {
                 .value_parser(clap::value_parser!(i64))
             )
             .arg(block_table_choice_flag()),
-            Command::new("stream-blocks-changes")
         ])
         .get_matches();
 
@@ -211,9 +225,9 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
                 commands::services::transfer_api::transfer_flow_api(tfa, config_path).await
             }
             Some(("repair-gaps", rg)) => commands::services::backfill::backfill(rg, config_path).await,
+            Some(("transfer-parser", tp)) => commands::services::transfer_parser::transfer_parser(tp, config_path).await,
             _ => Err(anyhow!("invalid subcommand")),
         },
-        Some(("stream-blocks-changes", _)) => commands::db::stream_blocks_changes(config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }
