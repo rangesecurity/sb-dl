@@ -1,5 +1,5 @@
 use {
-    super::transfer_flow_api::OrderedTransfersResponse, crate::transfer_flow::create_ordered_transfer_for_block, anyhow::{anyhow, Result}, chrono::DateTime, db::models::Blocks, elasticsearch::{http::transport::Transport, Elasticsearch}, solana_transaction_status::UiConfirmedBlock, tokio::sync::oneshot::Receiver
+    super::transfer_flow_api::OrderedTransfersResponse, crate::transfer_flow::create_ordered_transfer_for_block, anyhow::{anyhow, Result}, chrono::prelude::*, db::models::Blocks, elasticsearch::{http::{request::JsonBody, transport::Transport}, BulkParts, Elasticsearch}, solana_transaction_status::UiConfirmedBlock, tokio::sync::oneshot::Receiver
 };
 
 /// service to support real-time parsing of transfers 
@@ -28,9 +28,7 @@ impl TransferParser {
                 block = self.blocks_notification.recv() => {
                     if let Some(block) = block {
                         let elastic = self.elastic.clone();
-                        tokio::task::spawn(async move {
-                            Self::process_message(elastic, block);
-                        });
+                        tokio::task::spawn(Self::process_message(elastic, block));
                     } else {
                         return;
                     }
@@ -38,10 +36,11 @@ impl TransferParser {
             }
         }
     }
-    fn process_message(
+    async fn process_message(
         elastic: Elasticsearch,
         block: Blocks,
     ) {
+        let slot = block.slot;
         let transfers = match Self::decode_transfers(block) {
             Ok(transfers) => transfers,
             Err(err) => {
@@ -49,8 +48,45 @@ impl TransferParser {
                 return;
             }
         };
-        // push transfers to elasticsearch
-        log::info!("TODO");
+        let mut body: Vec<JsonBody<_>> = Vec::with_capacity(transfers.transfers.len());
+        for tx in transfers.transfers {
+            match serde_json::to_value(tx.transfers) {
+                Ok(transfers) => {
+                    body.push(serde_json::json!({"index": {"_id": tx.tx_hash}}).into());
+                    body.push(serde_json::json!({
+                        "id": tx.tx_hash,
+                        "user": "REPLACEME_user",
+                        "post_date": Utc::now(),
+                        "message": transfers,
+                    }).into());
+                }
+                Err(err) => {
+                    log::error!("failed to serialize transfers({}) {err:#?}", tx.tx_hash);
+
+                }
+            }
+        }
+        match elastic
+        .bulk(BulkParts::Index("REPLACEME_index"))
+        .body(body)
+        .send().await {
+            Ok(response) => {
+                // todo: how to handle response?
+                match response.json::<serde_json::Value>().await {
+                    Ok(response_body) => {
+                        if !response_body["errors"].as_bool().unwrap_or_default() {
+                            log::error!("failed to index transfers");
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("failed to decode response {err:#?}");
+                    }
+                }
+            }
+            Err(err) => {
+                log::error!("failed to push transfers(block={slot:?}) {err:#?}");
+            }
+        }
     }
     fn decode_transfers(mut block: Blocks) -> anyhow::Result<OrderedTransfersResponse> {
         let slot = block.slot;
