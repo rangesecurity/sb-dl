@@ -9,4 +9,4 @@ ansible/inventories/host_vars/
 
 config.yaml.dev
 
-sb_dl
+./sb_dl
