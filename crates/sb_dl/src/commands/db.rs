@@ -6,7 +6,56 @@ use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::Bloc
 use sb_dl::config::Config;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
-use tokio::task::JoinSet;
+use tokio::{fs::File, io::AsyncWriteExt, task::JoinSet};
+
+/// given a range, find blocks that are missing
+pub async fn find_missing_blocks(
+    matches: &ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let start = *matches.get_one::<i64>("start").unwrap() as u64;
+    let end = *matches.get_one::<i64>("end").unwrap() as u64;
+    let output = matches.get_one::<String>("output").unwrap();
+    let cfg = Config::load(config_path).await?;
+    // load all currently indexed block number to avoid re-downloading already indexed block data
+    let indexed: HashSet<u64> = {
+        let mut conn = db::new_connection(&cfg.db_url)?;
+
+        // perform db migrations
+        run_migrations(&mut conn);
+
+        let client = db::client::Client {};
+        let mut blocks_1_indexed = client
+            .indexed_blocks(&mut conn, BlockTableChoice::Blocks)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        let mut blocks_2_indexed = client
+            .indexed_blocks(&mut conn, BlockTableChoice::Blocks2)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        blocks_1_indexed.append(&mut blocks_2_indexed);
+        blocks_1_indexed.into_iter().collect()
+    };
+    let mut missing_blocks = vec![];
+
+    for block in start..=end {
+        if !indexed.contains(&block) {
+            missing_blocks.push(block);
+        }
+    }
+
+    log::info!("found {} missing blocks in range(start={start}, end={end})", missing_blocks.len());
+
+    let mut fh = File::create(output).await?;
+    for missing_block in missing_blocks {
+        fh.write_all(format!("{missing_block}\n").as_bytes()).await?;
+    }
+    fh.flush().await.with_context(|| "failed to flush file")
+}
 
 pub async fn fill_missing_slots_no_tx(
     matches: &ArgMatches,

@@ -148,7 +148,23 @@ async fn main() -> Result<()> {
                 .help("starting number to assume a gap for")
                 .value_parser(clap::value_parser!(i64))
             )
-            .arg(block_table_choice_flag())
+            .arg(block_table_choice_flag()),
+            Command::new("find-missing-blocks")
+            .about("find missing blocks in a given range")
+            .arg(
+                Arg::new("start")
+                .long("start")
+                .value_parser(clap::value_parser!(i64))
+            )
+            .arg(
+                Arg::new("end")
+                .long("end")
+                .value_parser(clap::value_parser!(i64))
+            )
+            .arg(
+                Arg::new("output")
+                .long("output")
+            )
         ])
         .get_matches();
 
@@ -212,6 +228,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             Some(("repair-gaps", rg)) => commands::services::backfill::backfill(rg, config_path).await,
             _ => Err(anyhow!("invalid subcommand")),
         },
+        Some(("find-missing-blocks", fmb)) => commands::db::find_missing_blocks(fmb, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }
