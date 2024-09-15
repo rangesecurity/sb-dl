@@ -19,6 +19,7 @@ pub enum BlockFilter {
     FirstBlock,
     /// return all blocks
     All,
+    Id(Uuid)
 }
 
 impl Client {
@@ -218,6 +219,32 @@ impl Client {
                     })
                     .collect()),
             },
+            BlockFilter::Id(block_id) => match block_table_choice {
+                BlockTableChoice::Blocks => Ok(blocks::dsl::blocks
+                    .filter(blocks::dsl::id.eq(&block_id))
+                    .select(DbBlocks::as_select())
+                    .load(conn)?
+                    .into_iter()
+                    .map(|block| Blocks {
+                        id: block.id,
+                        number: block.number,
+                        data: block.data,
+                        slot: block.slot,
+                    })
+                    .collect()),
+                BlockTableChoice::Blocks2 => Ok(blocks_2::dsl::blocks_2
+                    .filter(blocks_2::dsl::id.eq(&block_id))
+                    .select(DbBlocks2::as_select())
+                    .load(conn)?
+                    .into_iter()
+                    .map(|block| Blocks {
+                        id: block.id,
+                        number: block.number,
+                        data: block.data,
+                        slot: block.slot,
+                    })
+                    .collect())
+            }
         }
     }
     /// Used to update blocks which have missing slot information
