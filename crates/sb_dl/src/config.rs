@@ -9,6 +9,7 @@ pub struct Config {
     pub db_url: String,
     pub geyser: Geyser,
     pub rpc_url: String,
+    pub elasticsearch_url: String,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -42,6 +43,7 @@ impl Default for Config {
                 max_decoding_size: 100 * 1024 * 1024,
                 max_encoding_size: 100 * 1024 * 1024,
             },
+            elasticsearch_url: "http://localhost:9200".to_string(),
         }
     }
 }
