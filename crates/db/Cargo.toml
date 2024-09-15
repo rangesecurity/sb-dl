@@ -25,14 +25,5 @@ features = ["derive"]
 version = "1"
 [dependencies.anyhow]
 version = "1"
-[dependencies.tokio-postgres]
-version = "0.7"
-[dependencies.log]
-version = "0.4"
-[dependencies.tokio]
-version = "1"
-features = ["full"]
-[dependencies.futures]
-version = "0.3"
 [dev-dependencies.rand]
 version = "0.8"

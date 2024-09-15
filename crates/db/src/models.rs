@@ -1,4 +1,4 @@
-use {anyhow::anyhow, diesel::{prelude::*, query_builder::BoxedSqlQuery, sql_types::{BigInt, Jsonb, Nullable}}, uuid::Uuid};
+use {anyhow::anyhow, diesel::prelude::*, uuid::Uuid};
 
 #[derive(Clone, Copy)]
 #[repr(u8)]

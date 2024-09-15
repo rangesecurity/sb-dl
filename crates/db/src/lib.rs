@@ -1,7 +1,7 @@
 use {
     anyhow::{Context, Result},
     diesel::{
-        r2d2::{ConnectionManager, Pool, PooledConnection},
+        r2d2::{ConnectionManager, Pool},
 
         prelude::*,
     },
@@ -11,13 +11,12 @@ pub mod client;
 pub mod migrations;
 pub mod models;
 pub mod schema;
-pub mod blocks_stream;
+
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 #[cfg(test)]
 pub mod tests;
 
-pub use tokio_postgres::AsyncMessage;
 
 /// establishes a single connection to postgres
 pub fn new_connection(path: &str) -> anyhow::Result<PgConnection> {
