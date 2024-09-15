@@ -1,25 +1,20 @@
 use {
-    super::transfer_flow_api::OrderedTransfersResponse, crate::transfer_flow::create_ordered_transfer_for_block, anyhow::{anyhow, Result}, chrono::DateTime, db::{blocks_stream::BlocksStreamClient, client::{BlockFilter, Client}, models::BlockTableChoice, new_connection_pool, AsyncMessage}, diesel::{r2d2::{ConnectionManager, Pool}, PgConnection}, elasticsearch::{http::transport::Transport, Elasticsearch}, futures::{channel::mpsc::UnboundedReceiver, StreamExt}, solana_transaction_status::UiConfirmedBlock, std::str::FromStr, tokio::sync::oneshot::Receiver, uuid::Uuid
+    super::transfer_flow_api::OrderedTransfersResponse, crate::transfer_flow::create_ordered_transfer_for_block, anyhow::{anyhow, Result}, chrono::DateTime, db::models::Blocks, elasticsearch::{http::transport::Transport, Elasticsearch}, solana_transaction_status::UiConfirmedBlock, tokio::sync::oneshot::Receiver
 };
 
 /// service to support real-time parsing of transfers 
 pub struct TransferParser {
-    client: BlocksStreamClient,
-    blocks_notification: UnboundedReceiver<AsyncMessage>,
-    connection_pool: Pool<ConnectionManager<PgConnection>>,
+    blocks_notification: tokio::sync::mpsc::Receiver<Blocks>,
     elastic: Elasticsearch,
 }
 
 impl TransferParser {
     pub async fn new(
-        db_url: &str,
+        blocks_notification: tokio::sync::mpsc::Receiver<Blocks>,
         elasticsearch_url: &str,
     ) -> Result<Self> {
-        let (client, blocks_notification) = db::blocks_stream::BlocksStreamClient::new(db_url).await?;
         Ok(Self {
-            client,
             blocks_notification,
-            connection_pool: new_connection_pool(db_url, 10)?,
             elastic: Elasticsearch::new(Transport::single_node(elasticsearch_url)?)
         })
     }
@@ -30,19 +25,12 @@ impl TransferParser {
                     log::warn!("received exit");
                     return;
                 }
-                message = self.blocks_notification.next() => {
-                    if let Some(message) = message {
-                        match self.connection_pool.get() {
-                            Ok(mut conn) => {
-                                let elastic = self.elastic.clone();
-                                tokio::task::spawn(async move {
-                                    Self::process_message(elastic, &mut conn, message);
-                                });
-                            }
-                            Err(err) => {
-                                log::error!("failed to retrieve postgres connection {err:#?}");
-                            }
-                        }
+                block = self.blocks_notification.recv() => {
+                    if let Some(block) = block {
+                        let elastic = self.elastic.clone();
+                        tokio::task::spawn(async move {
+                            Self::process_message(elastic, block);
+                        });
                     } else {
                         return;
                     }
@@ -52,10 +40,9 @@ impl TransferParser {
     }
     fn process_message(
         elastic: Elasticsearch,
-        conn: &mut PgConnection,
-        message: AsyncMessage
+        block: Blocks,
     ) {
-        let transfers = match Self::decode_transfers(conn, message) {
+        let transfers = match Self::decode_transfers(block) {
             Ok(transfers) => transfers,
             Err(err) => {
                 log::error!("failed to decode transfers {err:#?}");
@@ -63,52 +50,16 @@ impl TransferParser {
             }
         };
         // push transfers to elasticsearch
-        log::warn!("TODO");
+        log::info!("TODO");
     }
-    fn decode_transfers(
-        conn: &mut PgConnection,
-        message: AsyncMessage
-    ) -> anyhow::Result<OrderedTransfersResponse> {
-        const CLIENT: Client = Client{};
-        let AsyncMessage::Notification(msg) = message  else {
-            return Err(anyhow!("failed to parse message {message:#?}"));
-        };
-        let (block, slot): (UiConfirmedBlock, Option<i64>) = {
-            let channel = msg.channel();
-            let payload = match Uuid::from_str(msg.payload()) {
-                Ok(id) => id,
-                Err(err) => {
-                    return Err(anyhow!("failed to parse payload {err:#?}"));
-                }
-            };
-            let filter = BlockFilter::Id(payload);
-            let table_choice = if channel.eq("block_changes") {
-                BlockTableChoice::Blocks
-            } else if channel.eq("block2_changes") {
-                BlockTableChoice::Blocks2
-            } else {
-                return Err(anyhow!("received message on unsupported channel {channel}"));
-            };
-            match CLIENT.select_block(
-                conn,
-                filter,
-                table_choice
-            ) {
-                Ok(mut blocks) => if blocks.is_empty() {
-                    return Err(anyhow!("failed to find block matching id {payload}"));
-                } else {
-                    match serde_json::from_value(
-                        std::mem::take(&mut blocks[0].data)
-                    ) {
-                        Ok(block) => (block, blocks[0].slot),
-                        Err(err) => {
-                            return Err(anyhow!("failed to deserialize block {err:#?}"));
-                        }
-                    }
-                }
-                Err(err) => {
-                    return Err(anyhow!("failed to query db {err:#?}"));
-                }
+    fn decode_transfers(mut block: Blocks) -> anyhow::Result<OrderedTransfersResponse> {
+        let slot = block.slot;
+        let block: UiConfirmedBlock = match serde_json::from_value(
+            std::mem::take(&mut block.data)
+        ) {
+            Ok(block) => block,
+            Err(err) => {
+                return Err(anyhow!("failed to deserialize block {err:#?}"));
             }
         };
         let time = if let Some(block_time) = block.block_time {
