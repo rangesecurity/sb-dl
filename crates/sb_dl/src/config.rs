@@ -9,6 +9,8 @@ pub struct Config {
     pub db_url: String,
     pub geyser: Geyser,
     pub rpc_url: String,
+    /// address of a remote postgres node
+    pub remotedb_url: String,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -42,6 +44,7 @@ impl Default for Config {
                 max_decoding_size: 100 * 1024 * 1024,
                 max_encoding_size: 100 * 1024 * 1024,
             },
+            remotedb_url: "postgres://postgres:password123@localhost/sbdl".to_string(),
         }
     }
 }
