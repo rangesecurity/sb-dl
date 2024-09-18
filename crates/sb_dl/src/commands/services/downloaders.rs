@@ -13,11 +13,29 @@ use {
             geyser::{new_geyser_client, subscribe_blocks},
         },
         types::BlockInfo,
-    }, solana_transaction_status::UiConfirmedBlock, std::{collections::HashSet, sync::Arc}, tokio::{
+    }, solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig}, solana_transaction_status::{UiConfirmedBlock, UiTransactionEncoding}, std::{collections::HashSet, sync::Arc}, tokio::{
         signal::unix::{signal, Signal, SignalKind},
         sync::Semaphore,
     }
 };
+pub async fn get_transaction(
+    matches: &clap::ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let tx_hash = matches.get_one::<String>("tx-hash").unwrap();
+    let cfg = Config::load(config_path).await?;
+    let rpc = RpcClient::new(cfg.rpc_url.clone());
+    let tx = rpc.get_transaction_with_config(
+        &tx_hash.parse().unwrap(),
+        RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::JsonParsed),
+            max_supported_transaction_version: Some(1),
+            ..Default::default()
+        }
+    ).await?;
+    log::info!("tx(hash={}, slot={})", tx_hash, tx.slot);
+    Ok(())
+}
 /// Starts the geyser stream block downloader
 pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();

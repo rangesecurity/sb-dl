@@ -103,6 +103,14 @@ async fn main() -> Result<()> {
                         .arg(
                             Arg::new("input")
                             .long("input")
+                        )
+                        .arg(
+                            Arg::new("full-range")
+                            .long("full-range")
+                            .help("use full range instead of exact numbers")
+                            .action(clap::ArgAction::SetTrue)
+                            .default_value("false")
+                            .required(false)
                         ),
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag())
@@ -187,6 +195,16 @@ async fn main() -> Result<()> {
             .arg(
                 Arg::new("output")
                 .long("output")
+            ),
+            Command::new("guess-slot-numbers")
+            .arg(
+                Arg::new("input")
+                .long("input")
+            ),
+            Command::new("get-tx")
+            .arg(
+                Arg::new("tx-hash")
+                .long("tx-hash")
             )
         ])
         .get_matches();
@@ -253,6 +271,8 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             _ => Err(anyhow!("invalid subcommand")),
         },
         Some(("find-missing-blocks", fmb)) => commands::db::find_missing_blocks(fmb, config_path).await,
+        Some(("guess-slot-numbers", gsn)) => commands::db::guess_slot_numbers(gsn, config_path).await,
+        Some(("get-tx", gt)) => commands::services::downloaders::get_transaction(gt, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }

@@ -89,22 +89,22 @@ fn test_blocks() {
         assert_eq!(res.len(), 1);
     }
     // check that setting slot by default worked
-    let indexed_blocks: HashSet<i64> = client
-        .indexed_blocks(&mut db_conn, BlockTableChoice::Blocks)
+    let indexed_slots: HashSet<i64> = client
+        .indexed_slots(&mut db_conn, BlockTableChoice::Blocks)
         .unwrap()
         .into_iter()
         .filter_map(|block| Some(block?))
         .collect();
     let mut expected_set = (2..101).into_iter().collect::<HashSet<i64>>();
-    assert_eq!(expected_set, indexed_blocks);
+    assert_eq!(expected_set, indexed_slots);
     // check that setting slot by default worked
-    let indexed_blocks: HashSet<i64> = client
-        .indexed_blocks(&mut db_conn, BlockTableChoice::Blocks2)
+    let indexed_slots: HashSet<i64> = client
+        .indexed_slots(&mut db_conn, BlockTableChoice::Blocks2)
         .unwrap()
         .into_iter()
         .filter_map(|block| Some(block?))
         .collect();
-    assert_eq!(expected_set, indexed_blocks);
+    assert_eq!(expected_set, indexed_slots);
 
     // update slot number for blocks which are missing it
     for i in 200..300 {
@@ -148,21 +148,21 @@ fn test_blocks() {
         assert_ne!(block2[0].slot, block[0].slot);
         assert_eq!(block2[0].data, block[0].data);
     }
-    let indexed_blocks: HashSet<i64> = client
-        .indexed_blocks(&mut db_conn, BlockTableChoice::Blocks)
+    let indexed_slots: HashSet<i64> = client
+        .indexed_slots(&mut db_conn, BlockTableChoice::Blocks)
         .unwrap()
         .into_iter()
         .filter_map(|block| Some(block?))
         .collect();
     expected_set.extend((201..301).into_iter().collect::<HashSet<i64>>());
-    assert_eq!(expected_set, indexed_blocks);
-    let indexed_blocks: HashSet<i64> = client
-        .indexed_blocks(&mut db_conn, BlockTableChoice::Blocks2)
+    assert_eq!(expected_set, indexed_slots);
+    let indexed_slots: HashSet<i64> = client
+        .indexed_slots(&mut db_conn, BlockTableChoice::Blocks2)
         .unwrap()
         .into_iter()
         .filter_map(|block| Some(block?))
         .collect();
-    assert_eq!(expected_set, indexed_blocks);
+    assert_eq!(expected_set, indexed_slots);
 
     // now test the edge case where block_number == slot number and slot number is not null
     for i in 1000..1500 {

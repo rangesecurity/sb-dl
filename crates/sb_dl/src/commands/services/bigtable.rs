@@ -40,13 +40,13 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
 
         let client = db::client::Client {};
         let mut blocks_1_indexed = client
-            .indexed_blocks(&mut conn, BlockTableChoice::Blocks)
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|block| Some(block? as u64))
             .collect::<Vec<_>>();
         let mut blocks_2_indexed = client
-            .indexed_blocks(&mut conn, BlockTableChoice::Blocks2)
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks2)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|block| Some(block? as u64))
@@ -54,6 +54,29 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
         blocks_1_indexed.append(&mut blocks_2_indexed);
         blocks_1_indexed.into_iter().collect()
     };
+    {
+        let mut conn = db::new_connection(&cfg.remotedb_url)?;
+
+        let client = db::client::Client {};
+        let mut blocks_1_indexed = client
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        let mut blocks_2_indexed = client
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks2)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        for block in blocks_1_indexed {
+            already_indexed.insert(block);
+        }
+        for block in blocks_2_indexed {
+            already_indexed.insert(block);
+        }
+    }
 
     // mark failed blocks as already indexed to avoid redownloading
     already_indexed.extend(failed_blocks.iter());
@@ -116,7 +139,7 @@ pub async fn manual_bigtable_downloader(
     let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
     let threads = *matches.get_one::<usize>("threads").unwrap();
     let input = matches.get_one::<String>("input").unwrap();
-
+    let full_range = matches.get_flag("full-range");
     // load all currently indexed block number to avoid re-downloading already indexed block data
     let mut already_indexed: HashSet<u64> = {
         let mut conn = db::new_connection(&cfg.db_url)?;
@@ -126,13 +149,13 @@ pub async fn manual_bigtable_downloader(
 
         let client = db::client::Client {};
         let mut blocks_1_indexed = client
-            .indexed_blocks(&mut conn, BlockTableChoice::Blocks)
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|block| Some(block? as u64))
             .collect::<Vec<_>>();
         let mut blocks_2_indexed = client
-            .indexed_blocks(&mut conn, BlockTableChoice::Blocks2)
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks2)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|block| Some(block? as u64))
@@ -141,6 +164,29 @@ pub async fn manual_bigtable_downloader(
         blocks_1_indexed.into_iter().collect()
     };
 
+    {
+        let mut conn = db::new_connection(&cfg.remotedb_url)?;
+
+        let client = db::client::Client {};
+        let mut blocks_1_indexed = client
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        let mut blocks_2_indexed = client
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks2)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        for block in blocks_1_indexed {
+            already_indexed.insert(block);
+        }
+        for block in blocks_2_indexed {
+            already_indexed.insert(block);
+        }
+    }
 
     let slots_to_fetch = {
         let mut slots_to_fetch = vec![];
@@ -158,11 +204,15 @@ pub async fn manual_bigtable_downloader(
                 }
             }
         }
-        let start = slots_to_fetch[0];
-        let end = slots_to_fetch[slots_to_fetch.len()-1];
-        (start..=end).collect::<Vec<_>>()
+        if full_range {
+            let start = slots_to_fetch[0];
+            let end = slots_to_fetch[slots_to_fetch.len()-1];
+            (start..=end).collect::<Vec<_>>()
+        } else {
+            slots_to_fetch
+        }
+
     };
-    log::info!("found {} blocks to fetch", slots_to_fetch.len());
 
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
     let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<BlockInfo>(10_000 as usize);

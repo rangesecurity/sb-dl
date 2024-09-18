@@ -23,7 +23,7 @@ pub enum BlockFilter {
 
 impl Client {
     /// Returns the slot number of blocks which we have indexed
-    pub fn indexed_blocks(
+    pub fn indexed_slots(
         self,
         conn: &mut PgConnection,
         block_table_choice: BlockTableChoice,
@@ -40,6 +40,31 @@ impl Client {
                 use super::schema::blocks_2::dsl::{self, blocks_2};
                 blocks_2
                     .select(dsl::slot)
+                    .get_results(conn)
+                    .with_context(|| "failed to select block numbers")?
+            }
+        };
+
+        Ok(numbers)
+    }
+    /// Returns the slot number of blocks which we have indexed
+    pub fn indexed_blocks(
+        self,
+        conn: &mut PgConnection,
+        block_table_choice: BlockTableChoice,
+    ) -> anyhow::Result<Vec<i64>> {
+        let numbers: Vec<i64> = match block_table_choice {
+            BlockTableChoice::Blocks => {
+                use super::schema::blocks::dsl::{self, blocks};
+                blocks
+                    .select(dsl::number)
+                    .get_results(conn)
+                    .with_context(|| "failed to select block numbers")?
+            }
+            BlockTableChoice::Blocks2 => {
+                use super::schema::blocks_2::dsl::{self, blocks_2};
+                blocks_2
+                    .select(dsl::number)
                     .get_results(conn)
                     .with_context(|| "failed to select block numbers")?
             }
