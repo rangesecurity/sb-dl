@@ -17,7 +17,7 @@ while true; do
             continue
         fi;
         echo "Gap found starting at block: $gap_start"
-        {{ app_root }}/sb_dl --log-file {{ app_root }}/logs/sb_dl_gap_repair.log --config {{ app_root }}/config.yaml services repair-gaps --starting-number "$gap_start"
+        {{ app_root }}/sb_dl --log-file {{ app_root }}/logs/sb_dl_gap_repair.log --config {{ app_root }}/config.yaml services repair-gaps --block-table-choice 2 --starting-number "$gap_start"
     done
 
 done
