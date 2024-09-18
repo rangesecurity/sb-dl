@@ -81,6 +81,37 @@ async fn main() -> Result<()> {
                     .arg(failed_blocks_flag())
                     .arg(threads_flag())
                     .arg(block_table_choice_flag()),
+                    Command::new("manual-bigtable-downloader")
+                        .about("download specific block data using bigtable")
+                        .arg(
+                            Arg::new("start")
+                                .long("start")
+                                .value_parser(value_parser!(u64))
+                                .required(false),
+                        )
+                        .arg(
+                            Arg::new("limit")
+                                .long("limit")
+                                .help("max number of slots to index")
+                                .value_parser(value_parser!(u64))
+                                .required(false),
+                        )
+                        .arg(no_minimization_flag())
+                        .arg(failed_blocks_flag())
+                        .arg(threads_flag())
+                        .arg(block_table_choice_flag())
+                        .arg(
+                            Arg::new("input")
+                            .long("input")
+                        )
+                        .arg(
+                            Arg::new("full-range")
+                            .long("full-range")
+                            .help("use full range instead of exact numbers")
+                            .action(clap::ArgAction::SetTrue)
+                            .default_value("false")
+                            .required(false)
+                        ),
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag())
             .arg(block_table_choice_flag()),
@@ -148,7 +179,33 @@ async fn main() -> Result<()> {
                 .help("starting number to assume a gap for")
                 .value_parser(clap::value_parser!(i64))
             )
-            .arg(block_table_choice_flag())
+            .arg(block_table_choice_flag()),
+            Command::new("find-missing-blocks")
+            .about("find missing blocks in a given range")
+            .arg(
+                Arg::new("start")
+                .long("start")
+                .value_parser(clap::value_parser!(i64))
+            )
+            .arg(
+                Arg::new("end")
+                .long("end")
+                .value_parser(clap::value_parser!(i64))
+            )
+            .arg(
+                Arg::new("output")
+                .long("output")
+            ),
+            Command::new("guess-slot-numbers")
+            .arg(
+                Arg::new("input")
+                .long("input")
+            ),
+            Command::new("get-tx")
+            .arg(
+                Arg::new("tx-hash")
+                .long("tx-hash")
+            )
         ])
         .get_matches();
 
@@ -192,7 +249,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("fill-missing-slots-no-tx", fmsnt)) => commands::db::fill_missing_slots_no_tx(fmsnt, config_path).await,
         Some(("services", s)) => match s.subcommand() {
             Some(("bigtable-downloader", bd)) => {
-                commands::services::downloaders::bigtable_downloader(bd, config_path).await
+                commands::services::bigtable::bigtable_downloader(bd, config_path).await
             }
             Some(("geyser-stream", gs)) => {
                 commands::services::downloaders::geyser_stream(gs, config_path).await
@@ -210,8 +267,12 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
                 commands::services::transfer_api::transfer_flow_api(tfa, config_path).await
             }
             Some(("repair-gaps", rg)) => commands::services::backfill::backfill(rg, config_path).await,
+            Some(("manual-bigtable-downloader", mbd)) => commands::services::bigtable::manual_bigtable_downloader(mbd, config_path).await,
             _ => Err(anyhow!("invalid subcommand")),
         },
+        Some(("find-missing-blocks", fmb)) => commands::db::find_missing_blocks(fmb, config_path).await,
+        Some(("guess-slot-numbers", gsn)) => commands::db::guess_slot_numbers(gsn, config_path).await,
+        Some(("get-tx", gt)) => commands::services::downloaders::get_transaction(gt, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }

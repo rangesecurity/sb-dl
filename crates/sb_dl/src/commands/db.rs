@@ -1,12 +1,153 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::{HashMap, HashSet}, sync::Arc};
 
 use anyhow::{anyhow, Context};
 use clap::ArgMatches;
-use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::BlockTableChoice};
+use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::{BlockTableChoice, Blocks}};
 use sb_dl::config::Config;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
-use tokio::task::JoinSet;
+use tokio::{fs::File, io::{AsyncBufReadExt, AsyncWriteExt, BufReader}, task::JoinSet};
+
+/// given a range, find blocks that are missing
+pub async fn find_missing_blocks(
+    matches: &ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let start = *matches.get_one::<i64>("start").unwrap() as u64;
+    let end = *matches.get_one::<i64>("end").unwrap() as u64;
+    let output = matches.get_one::<String>("output").unwrap();
+    let cfg = Config::load(config_path).await?;
+    // load all currently indexed block number to avoid re-downloading already indexed block data
+    let mut indexed: HashSet<u64> = {
+        let mut conn = db::new_connection(&cfg.db_url)?;
+
+        // perform db migrations
+        run_migrations(&mut conn);
+
+        let client = db::client::Client {};
+        //let mut blocks_1_indexed = client
+        //    .indexed_slots(&mut conn, BlockTableChoice::Blocks)
+        //    .unwrap_or_default()
+        //    .into_iter()
+        //    .filter_map(|block| Some(block? as u64))
+        //    .collect::<Vec<_>>();
+        //let mut blocks_2_indexed = client
+        //    .indexed_slots(&mut conn, BlockTableChoice::Blocks2)
+        //    .unwrap_or_default()
+        //    .into_iter()
+        //    .filter_map(|block| Some(block? as u64))
+        //    .collect::<Vec<_>>();
+        let mut blocks_1_indexed = client.indexed_blocks(&mut conn, BlockTableChoice::Blocks)?;
+        let mut blocks_2_indexed = client.indexed_blocks(&mut conn, BlockTableChoice::Blocks2)?;
+        blocks_1_indexed.append(&mut blocks_2_indexed);
+        blocks_1_indexed.into_iter().map(|block| block as u64).collect()
+    };
+    {
+        let mut conn = db::new_connection(&cfg.remotedb_url)?;
+        // merge indexed blocks from remotedb
+
+        let client = db::client::Client {};
+        //let mut blocks_1_indexed = client
+        //    .indexed_slots(&mut conn, BlockTableChoice::Blocks)
+        //    .unwrap_or_default()
+        //    .into_iter()
+        //    .filter_map(|block| Some(block? as u64))
+        //    .collect::<Vec<_>>();
+        //let mut blocks_2_indexed = client
+        //    .indexed_slots(&mut conn, BlockTableChoice::Blocks2)
+        //    .unwrap_or_default()
+        //    .into_iter()
+        //    .filter_map(|block| Some(block? as u64))
+        //    .collect::<Vec<_>>();
+        //blocks_1_indexed.append(&mut blocks_2_indexed);
+
+        let mut blocks_1_indexed = client.indexed_blocks(&mut conn, BlockTableChoice::Blocks)?;
+        let mut blocks_2_indexed = client.indexed_blocks(&mut conn, BlockTableChoice::Blocks2)?;
+        blocks_1_indexed.append(&mut blocks_2_indexed);
+        for block in blocks_1_indexed.into_iter() {
+            indexed.insert(block as u64);
+        }
+        
+    }
+    let mut missing_blocks = vec![];
+
+    for block in start..=end {
+        if !indexed.contains(&block) {
+            missing_blocks.push(block);
+        }
+    }
+
+    log::info!("found {} missing blocks in range(start={start}, end={end})", missing_blocks.len());
+
+    let mut fh = File::create(output).await?;
+    for missing_block in missing_blocks {
+        fh.write_all(format!("{missing_block}\n").as_bytes()).await?;
+    }
+    fh.flush().await.with_context(|| "failed to flush file")
+}
+
+pub async fn guess_slot_numbers(
+    matches: &ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let input = matches.get_one::<String>("input").unwrap();
+    let blocks_to_fetch = {
+        let mut slots_to_fetch = vec![];
+        {
+            let file = File::open(input).await?;
+            let reader = BufReader::new(file);
+            let mut lines = reader.lines();
+
+            // Read the file line by line
+            while let Some(line) = lines.next_line().await? {
+                // Parse each line as a u64
+                match line.trim().parse::<u64>() {
+                    Ok(number) => slots_to_fetch.push(number),
+                    Err(_) => log::warn!("Warning: Skipping invalid line: {}", line),
+                }
+            }
+        }
+        slots_to_fetch
+    };
+    let cfg = Config::load(config_path).await?;
+    let pool = db::new_connection_pool(&cfg.db_url, 10)?;
+    let mut conn = db::new_connection(&cfg.db_url)?;
+    let mut remote_conn = db::new_connection(&cfg.remotedb_url)?;
+
+    let mut block_to_slot: HashMap<u64, u64> = HashMap::default();
+    let client = db::client::Client {};
+    let total_blocks = blocks_to_fetch.len();
+    let mut total_failures = 0;
+    for (idx, block_to_fetch) in blocks_to_fetch.iter().enumerate() {
+        log::info!("fetchin block {idx}/{total_blocks}");
+
+        let mut next_block: Vec<Blocks> = vec![];
+        next_block = client.select_block(&mut remote_conn, BlockFilter::Number((block_to_fetch+1) as i64), BlockTableChoice::Blocks2)?;
+        if next_block.is_empty() {
+            next_block = client.select_block(&mut remote_conn, BlockFilter::Number((block_to_fetch+1) as i64), BlockTableChoice::Blocks)?;
+            if next_block.is_empty() {
+                next_block = client.select_block(&mut conn, BlockFilter::Number((block_to_fetch+1) as i64), BlockTableChoice::Blocks2)?;
+                if next_block.is_empty() {
+                    next_block = client.select_block(&mut conn, BlockFilter::Number((block_to_fetch+1) as i64), BlockTableChoice::Blocks)?;
+                    if next_block.is_empty() {
+                        total_failures += 1;
+                        log::warn!("failed to find next block {block_to_fetch}");
+                        continue;
+                    }
+                }
+            }
+        }
+        let next_block = next_block[0].clone();
+        let block: UiConfirmedBlock = serde_json::from_value(next_block.data)?;
+        block_to_slot.insert(*block_to_fetch, block.parent_slot);
+    }
+    log::info!("failed to find {total_failures}/{total_blocks}");
+    let mut fh = File::create("slots_to_fetch.txt").await?;
+    for (_, slot) in block_to_slot {
+        fh.write_all(format!("{slot}\n").as_bytes()).await?;
+    }
+    fh.flush().await.with_context(|| "failed to flush file")
+}
 
 pub async fn fill_missing_slots_no_tx(
     matches: &ArgMatches,

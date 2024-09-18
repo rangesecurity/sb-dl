@@ -1,16 +1,11 @@
 use {
     super::super::utils::{
         get_failed_blocks, load_failed_blocks, sanitize_for_postgres, sanitize_value,
-    },
-    anyhow::{anyhow, Context},
-    clap::ArgMatches,
-    db::{migrations::run_migrations, models::{BlockTableChoice, NewBlock, NewBlock2}},
-    diesel::{
+    }, crate::commands::handle_exit, anyhow::{anyhow, Context}, clap::ArgMatches, db::{migrations::run_migrations, models::{BlockTableChoice, NewBlock, NewBlock2}}, diesel::{
         prelude::*,
         r2d2::{ConnectionManager, Pool, PooledConnection},
         PgConnection,
-    },
-    sb_dl::{
+    }, sb_dl::{
         config::Config,
         services::{
             backfill::Backfiller,
@@ -18,107 +13,29 @@ use {
             geyser::{new_geyser_client, subscribe_blocks},
         },
         types::BlockInfo,
-    },
-    solana_transaction_status::UiConfirmedBlock,
-    std::{collections::HashSet, sync::Arc},
-    tokio::{
+    }, solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig}, solana_transaction_status::{UiConfirmedBlock, UiTransactionEncoding}, std::{collections::HashSet, sync::Arc}, tokio::{
         signal::unix::{signal, Signal, SignalKind},
         sync::Semaphore,
-    },
+    }
 };
-
-/// Starts the big table historical block downloader
-pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {    
-    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
-
+pub async fn get_transaction(
+    matches: &clap::ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let tx_hash = matches.get_one::<String>("tx-hash").unwrap();
     let cfg = Config::load(config_path).await?;
-    let start = matches.get_one::<u64>("start").cloned();
-    let limit = matches.get_one::<u64>("limit").cloned();
-    let no_minimization = matches.get_flag("no-minimization");
-    let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
-    let threads = *matches.get_one::<usize>("threads").unwrap();
-
-    // create failed blocks directory, ignoring error (its already created)
-    let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
-
-    // read all failed blocks to append to the already_indexed hash set
-    //
-    // we do this so we can avoid re-downloading the blocks which are stored locally
-    let failed_blocks = get_failed_blocks(&failed_blocks_dir).await.unwrap();
-
-    // load all currently indexed block number to avoid re-downloading already indexed block data
-    let mut already_indexed: HashSet<u64> = {
-        let mut conn = db::new_connection(&cfg.db_url)?;
-
-        // perform db migrations
-        run_migrations(&mut conn);
-
-        let client = db::client::Client {};
-        let mut blocks_1_indexed = client
-            .indexed_blocks(&mut conn, BlockTableChoice::Blocks)
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|block| Some(block? as u64))
-            .collect::<Vec<_>>();
-        let mut blocks_2_indexed = client
-            .indexed_blocks(&mut conn, BlockTableChoice::Blocks2)
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|block| Some(block? as u64))
-            .collect::<Vec<_>>();
-        blocks_1_indexed.append(&mut blocks_2_indexed);
-        blocks_1_indexed.into_iter().collect()
-    };
-
-    // mark failed blocks as already indexed to avoid redownloading
-    already_indexed.extend(failed_blocks.iter());
-
-    let downloader = Arc::new(Downloader::new(cfg.bigtable).await?);
-
-    // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
-    let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<BlockInfo>(10_000 as usize);
-
-    let sig_quit = signal(SignalKind::quit())?;
-    let sig_int = signal(SignalKind::interrupt())?;
-    let sig_term = signal(SignalKind::terminate())?;
-
-    let pool = db::new_connection_pool(&cfg.db_url, threads as u32 *2)?;
-
-    // start the background persistence task
-    tokio::task::spawn(
-        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads, blocks_table).await },
-    );
-
-    let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
-    let (stop_downloader_tx, stop_downloader_rx) = tokio::sync::oneshot::channel();
-    tokio::task::spawn(async move {
-        log::info!("starting block_indexing. disable_minimization={no_minimization}");
-
-        if let Err(err) = downloader
-            .start(
-                blocks_tx,
-                already_indexed,
-                start,
-                limit,
-                no_minimization,
-                threads,
-                stop_downloader_rx
-            )
-            .await
-        {
-            let _ = finished_tx.send(Some(format!("downloader failed {err:#?}")));
-        } else {
-            log::info!("finished downloading blocks");
-            let _ = finished_tx.send(None);
+    let rpc = RpcClient::new(cfg.rpc_url.clone());
+    let tx = rpc.get_transaction_with_config(
+        &tx_hash.parse().unwrap(),
+        RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::JsonParsed),
+            max_supported_transaction_version: Some(1),
+            ..Default::default()
         }
-    });
-
-    let err = handle_exit(sig_quit, sig_int, sig_term, finished_rx).await;
-    // stop the downloader task
-    let _ = stop_downloader_tx.send(());
-    return err
+    ).await?;
+    log::info!("tx(hash={}, slot={})", tx_hash, tx.slot);
+    Ok(())
 }
-
 /// Starts the geyser stream block downloader
 pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
     let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
@@ -346,39 +263,6 @@ pub async fn block_persistence_loop(
             Err(err) => {
                 log::error!("failed to acquire permit {err:#?}");
                 return;
-            }
-        }
-    }
-}
-
-async fn handle_exit(
-    mut sig_quit: Signal,
-    mut sig_int: Signal,
-    mut sig_term: Signal,
-    finished_rx: tokio::sync::oneshot::Receiver<Option<String>>,
-) -> anyhow::Result<()> {
-    // handle exit routines
-    tokio::select! {
-        _ = sig_quit.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_int.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        _ = sig_term.recv() => {
-            log::warn!("goodbye..");
-            return Ok(());
-        }
-        msg = finished_rx => {
-            match msg {
-                // service encountered error
-                Ok(Some(msg)) => return Err(anyhow!(msg)),
-                // service finished without error
-                Ok(None) => return Ok(()),
-                // underlying channel had an error
-                Err(err) => return Err(anyhow!(err))
             }
         }
     }
