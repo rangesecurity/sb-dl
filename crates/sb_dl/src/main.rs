@@ -96,6 +96,14 @@ async fn main() -> Result<()> {
                         .value_parser(clap::value_parser!(i64))   
                     )
                     .arg(block_table_choice_flag())
+                    .arg(
+                        Arg::new("use-remotedb")
+                        .long("use-remotedb")
+                        .help("if present, use remote database")
+                        .action(clap::ArgAction::SetTrue)
+                        .default_value("false")
+                        .required(false)                        
+                    )
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag())
             .arg(block_table_choice_flag()),

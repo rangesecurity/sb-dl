@@ -10,6 +10,7 @@ pub async fn transfer_parser(
     config_path: &str,
 ) -> anyhow::Result<()> {
     let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
+    let use_remotedb = matches.get_flag("use-remotedb");
     let start = *matches.get_one::<i64>("start").unwrap();
     let end = *matches.get_one::<i64>("end").unwrap();
     let cfg = Config::load(config_path).await?;
@@ -17,8 +18,12 @@ pub async fn transfer_parser(
         &cfg.elasticsearch.url,
         cfg.elasticsearch.storage_version
     ).await?;
-    
-    let mut conn = db::new_connection(&cfg.db_url)?;
+    let db_url = if use_remotedb {
+        &cfg.remotedb_url
+    } else {
+        &cfg.db_url
+    };
+    let mut conn = db::new_connection(db_url)?;
     run_migrations(&mut conn);
 
     let client = Client{};
