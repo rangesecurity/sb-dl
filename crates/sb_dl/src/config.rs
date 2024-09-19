@@ -10,6 +10,8 @@ pub struct Config {
     pub geyser: Geyser,
     pub rpc_url: String,
     pub elasticsearch: ElasticSearch,
+    /// address of a remote postgres node
+    pub remotedb_url: String,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -53,6 +55,7 @@ impl Default for Config {
                 url: "http://localhost:9200".to_string(),
                 storage_version: 2,
             },
+            remotedb_url: "postgres://postgres:password123@localhost/sbdl".to_string(),
         }
     }
 }

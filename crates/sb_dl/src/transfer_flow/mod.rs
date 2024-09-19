@@ -118,6 +118,10 @@ pub fn prepare_transfer_flow_for_tx_hash(
 
 fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option<TransferFlow> {
     let tx_meta = tx.meta.as_ref()?;
+    // skip parsing failed transactions
+    if tx_meta.err.is_some() {
+        return None;
+    }
     // pre_balances[0] is equal to account_keys[0]
     let _pre_balances = tx_meta.pre_balances.clone();
     let _post_balances = tx_meta.post_balances.clone();
