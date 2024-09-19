@@ -9,7 +9,7 @@ pub struct Config {
     pub db_url: String,
     pub geyser: Geyser,
     pub rpc_url: String,
-    pub elasticsearch_url: String,
+    pub elasticsearch: ElasticSearch,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -31,6 +31,12 @@ pub struct BigTableConfig {
     pub max_decoding_size: usize,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ElasticSearch {
+    pub url: String,
+    pub storage_version: u64
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -43,7 +49,10 @@ impl Default for Config {
                 max_decoding_size: 100 * 1024 * 1024,
                 max_encoding_size: 100 * 1024 * 1024,
             },
-            elasticsearch_url: "http://localhost:9200".to_string(),
+            elasticsearch: ElasticSearch {
+                url: "http://localhost:9200".to_string(),
+                storage_version: 2,
+            },
         }
     }
 }
