@@ -146,10 +146,8 @@ pub fn format_id(
 pub fn format_route_key(
     time: DateTime<Utc>
 ) -> String {
-    let year = time.year();
-    let month = time.month();
-    let date = time.date();
-    format!("solana-{year}-{month}-{date}")
+    let date = time.format("%Y-%m-%d").to_string();
+    format!("solana-{date}")
 }
 
 impl Schema {
@@ -182,5 +180,16 @@ impl Schema {
             amount: tx.amount.clone(),
             usd: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_format_route_key() {
+        let date = DateTime::from_timestamp(1726784321, 0).unwrap();
+        let route_key = format_route_key(date);
+        assert_eq!(route_key, "solana-2024-09-19");
     }
 }
