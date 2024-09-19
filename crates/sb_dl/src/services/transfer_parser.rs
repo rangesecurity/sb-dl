@@ -36,20 +36,24 @@ impl TransferParser {
             Ok(transfers) => transfers,
             Err(err) => return Err(anyhow!("failed to decode transfers {err:#?}")),
         };
+        let mut counter = 0_u64;
         let mut body: Vec<JsonBody<_>> = Vec::with_capacity(transfers.transfers.len());
-        for (id, tx) in transfers.transfers.iter().enumerate() {
+        for tx in transfers.transfers.iter() {
             let transfer_schemas = tx.transfers.iter().map(|transfer| {
-                let str_id = format_id(block_number, id as u64);
-                (str_id, Schema::new(
+                let str_id = format_id(block_number, counter);
+                let transfer_schema = (str_id, Schema::new(
                     &transfer,
                     transfers.time.unwrap_or_default(),
                     block_number,
-                    id as u64,
+                    counter,
                     tx.tx_hash.clone(),
                     self.storage_version,
-                ))
+                ));
+                counter += 1;
+                transfer_schema
             }).collect::<Vec<_>>();
             for (transfer_id, transfer_schema) in transfer_schemas {
+                //log::info!("transfer(id={transfer_id}, schema={transfer_schema:#?})");
                 body.push(serde_json::json!({"index": {"_id": transfer_id}}).into());
                 body.push(serde_json::json!(transfer_schema).into());
             }
@@ -108,7 +112,7 @@ impl TransferParser {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Schema {
     pub id: String,
     // set to 2, incrementing this can be used to delete previously indexed payment data
