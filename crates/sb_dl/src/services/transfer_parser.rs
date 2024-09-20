@@ -40,10 +40,15 @@ impl TransferParser {
             log::debug!("no transfers for block({block_number})");
             return Ok(());
         }
+        //log::info!("found {} transfers", transfers.transfers.len());
         let mut counter = 0_u64;
         let mut body: Vec<JsonBody<_>> = Vec::with_capacity(transfers.transfers.len());
         for tx in transfers.transfers.iter() {
-            let transfer_schemas = tx.transfers.iter().map(|transfer| {
+            let transfer_schemas = tx.transfers.iter().filter_map(|transfer| {
+                // TODO: remove once full mint detection is working
+                if transfer.mint.is_empty() {
+                    return None;
+                }
                 let str_id = format_id(block_number, counter);
                 let transfer_schema = (str_id, Schema::new(
                     &transfer,
@@ -54,7 +59,7 @@ impl TransferParser {
                     self.storage_version,
                 ));
                 counter += 1;
-                transfer_schema
+                Some(transfer_schema)
             }).collect::<Vec<_>>();
             for (transfer_id, transfer_schema) in transfer_schemas {
                 //log::info!("transfer(id={transfer_id}, schema={transfer_schema:#?})");
@@ -62,6 +67,7 @@ impl TransferParser {
                 body.push(serde_json::json!(transfer_schema).into());
             }
         }
+        //log::info!("counter {counter}");
         match self.elastic
         .bulk(BulkParts::Index("payments"))
         .routing(&format_route_key(transfers.time.unwrap_or_default()))
