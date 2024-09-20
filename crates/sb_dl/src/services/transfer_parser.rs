@@ -36,6 +36,10 @@ impl TransferParser {
             Ok(transfers) => transfers,
             Err(err) => return Err(anyhow!("failed to decode transfers {err:#?}")),
         };
+        if transfers.transfers.is_empty() {
+            log::debug!("no transfers for block({block_number})");
+            return Ok(());
+        }
         let mut counter = 0_u64;
         let mut body: Vec<JsonBody<_>> = Vec::with_capacity(transfers.transfers.len());
         for tx in transfers.transfers.iter() {
