@@ -280,6 +280,11 @@ fn get_outer_instructions_by_index(
             if let Some(token_mint) = token_mints_by_account.get(&ix.source) {
                 ix.mint = Some(token_mint.clone());
             }
+            if ix.mint.is_none() {
+                if let Some(token_mint) = token_mints_by_account.get(&ix.destination) {
+                    ix.mint = Some(token_mint.clone());
+                }
+            }
         }
 
         // instruction numbering in existing explorers always starts at 1, however
@@ -389,8 +394,11 @@ fn create_ordered_transfers(
             .get(&key)
             .with_context(|| "should not be None")?;
         if let Some(transfer) = outer_transfer {
-            let transfer: Transfer = From::from(transfer.clone());
-            ordered_transfers.push(transfer);
+            let transfer: Option<Transfer> = From::from(transfer.clone());
+            if let Some(transfer) = transfer {
+                ordered_transfers.push(transfer);
+            }
+            
         }
         if !inner_transfers.contains_key(&key) {
             // no inner transfers
@@ -400,8 +408,10 @@ fn create_ordered_transfers(
             .get(&key)
             .with_context(|| format!("should not be None for key {key}"))?;
         for inner_transfer in inner_transfers {
-            let transfer: Transfer = From::from(inner_transfer.clone());
-            ordered_transfers.push(transfer);
+            let transfer: Option<Transfer> = From::from(inner_transfer.clone());
+            if let Some(transfer) = transfer {
+                ordered_transfers.push(transfer);
+            }
         }
     }
     if ordered_transfers.is_empty() {
@@ -411,4 +421,43 @@ fn create_ordered_transfers(
         transfers: ordered_transfers,
         tx_hash: tx_hash.to_string(),
     })
+}
+
+/// extracts token mints from initializeAccount, initializeAccount2, initializeAccount3 instructions
+fn extract_token_mints_from_account_init(
+    inner_instructions: &HashMap<u8, Vec<DecodedInstruction>>,
+    outer_instructions: &HashMap<u8, DecodedInstruction>,
+    token_mints_by_account: &mut HashMap<String, String>, 
+) {
+    for (_, ixs) in inner_instructions {
+
+        for ix in ixs {
+            let DecodedInstruction::TokenInstruction(token_ix) = ix else {
+                continue;
+            };
+            match token_ix {
+                TokenInstructions::InitializeAccount(init_account) => {
+                    token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+                }
+                TokenInstructions::InitializeAccount3(init_account) => {
+                    token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+                }
+                _ => continue,
+            }
+        }
+    }
+    for (_, ix) in outer_instructions {
+        let DecodedInstruction::TokenInstruction(token_ix) = ix else {
+            continue;
+        };
+        match token_ix {
+            TokenInstructions::InitializeAccount(init_account) => {
+                token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+            }
+            TokenInstructions::InitializeAccount3(init_account) => {
+                token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+            }
+            _ => continue,
+        }
+    }
 }

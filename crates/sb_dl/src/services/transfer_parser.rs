@@ -47,6 +47,7 @@ impl TransferParser {
             let transfer_schemas = tx.transfers.iter().filter_map(|transfer| {
                 // TODO: remove once full mint detection is working
                 if transfer.mint.is_empty() {
+                    log::warn!("found empty mint");
                     return None;
                 }
                 let str_id = format_id(block_number, counter);

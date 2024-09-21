@@ -45,83 +45,86 @@ pub struct Transfer {
     pub amount: String,
 }
 
-impl From<DecodedInstruction> for Transfer {
+impl From<DecodedInstruction> for Option<Transfer> {
     fn from(value: DecodedInstruction) -> Self {
         match value {
             DecodedInstruction::SystemInstruction(ix) => match ix {
-                SystemInstructions::Transfer(tx) => Transfer {
+                SystemInstructions::Transfer(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.destination,
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports.to_string(),
-                },
-                SystemInstructions::CreateAccount(tx) => Transfer {
+                }),
+                SystemInstructions::CreateAccount(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.new_account,
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports.to_string(),
-                },
-                SystemInstructions::CreateAccountWithSeed(tx) => Transfer {
+                }),
+                SystemInstructions::CreateAccountWithSeed(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.new_account,
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports.to_string(),
-                },
-                SystemInstructions::TransferWithSeed(tx) => Transfer {
+                }),
+                SystemInstructions::TransferWithSeed(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.destination,
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports,
-                },
-                SystemInstructions::WithdrawNonceAccount(tx) => Transfer {
+                }),
+                SystemInstructions::WithdrawNonceAccount(tx) => Some(Transfer {
                     sender: tx.nonce_account,
                     recipient: tx.destination,
                     // nonce accounts hold sol
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports,
-                },
+                }),
             },
             DecodedInstruction::TokenInstruction(ix) => match ix {
-                TokenInstructions::Transfer(tx) => Transfer {
+                TokenInstructions::Transfer(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.destination,
                     mint: tx.mint.unwrap_or_default(),
                     amount: tx.amount,
-                },
-                TokenInstructions::MintTo(tx) => Transfer {
+                }),
+                TokenInstructions::MintTo(tx) => Some(Transfer {
                     // mints have no sender, so empty string
                     sender: "".to_string(),
                     recipient: tx.account,
                     mint: tx.mint,
                     amount: tx.amount.to_string(),
-                },
-                TokenInstructions::Burn(tx) => Transfer {
+                }),
+                TokenInstructions::Burn(tx) => Some(Transfer {
                     sender: tx.account,
                     // burns have no recipient
                     recipient: "".to_string(),
                     mint: tx.mint,
                     amount: tx.amount.to_string(),
-                },
-                TokenInstructions::TransferChecked(tx) => Transfer {
+                }),
+                TokenInstructions::TransferChecked(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.destination,
                     mint: tx.mint,
                     amount: tx.token_amount.amount,
-                },
-                TokenInstructions::MintToChecked(tx) => Transfer {
+                }),
+                TokenInstructions::MintToChecked(tx) => Some(Transfer {
                     sender: "".to_string(),
                     recipient: tx.account,
                     mint: tx.mint,
                     amount: tx.token_amount.amount,
-                },
-                TokenInstructions::BurnChecked(tx) => Transfer {
+                }),
+                TokenInstructions::BurnChecked(tx) => Some(Transfer {
                     sender: tx.account,
                     recipient: "".to_string(),
                     mint: tx.mint,
                     amount: tx.token_amount.amount,
-                },
+                }),
+                // these instructions are not intended for graphing, but are used for determining mint info
+                // when it is not possible to do so from pre/post token balances
+                TokenInstructions::InitializeAccount(_) | TokenInstructions::InitializeAccount3(_) => None,
                 /* temporarily omit until account closure is fully supported
-                TokenInstructions::CloseAccount(tx) => Transfer {
+                TokenInstructions::CloseAccount(tx) => Some(Transfer {
                     // should we use owner here instead?
                     sender: tx.account,
                     recipient: tx.destination,
@@ -130,7 +133,7 @@ impl From<DecodedInstruction> for Transfer {
                     // todo: need to figure out the way to handle this when the token account is for wsol
                     // for non wsol accounts this will just be the rent
                     amount: tx.amount.unwrap_or_default(),
-                },*/
+                }),*/
             },
         }
     }

@@ -14,8 +14,10 @@ pub fn prepare_transfer_graph(transfer_flow: TransferFlow) -> Result<()> {
             .get(&key)
             .with_context(|| "should not be None")?;
         if let Some(transfer) = outer_transfer {
-            let transfer: Transfer = From::from(transfer.clone());
-            ordered_transfers.push(transfer);
+            let transfer: Option<Transfer> = From::from(transfer.clone());
+            if let Some(transfer) = transfer {
+                ordered_transfers.push(transfer);
+            }
         }
         if !inner_transfers.contains_key(&key) {
             // no inner transfers
@@ -25,8 +27,10 @@ pub fn prepare_transfer_graph(transfer_flow: TransferFlow) -> Result<()> {
             .get(&key)
             .with_context(|| format!("should not be None for key {key}"))?;
         for inner_transfer in inner_transfers {
-            let transfer: Transfer = From::from(inner_transfer.clone());
-            ordered_transfers.push(transfer);
+            let transfer: Option<Transfer> = From::from(inner_transfer.clone());
+            if let Some(transfer) = transfer {
+                ordered_transfers.push(transfer);
+            }
         }
     }
     let mut graph = DiGraph::new();
