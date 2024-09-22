@@ -45,9 +45,8 @@ impl TransferParser {
         let mut body: Vec<JsonBody<_>> = Vec::with_capacity(transfers.transfers.len());
         for tx in transfers.transfers.iter() {
             let transfer_schemas = tx.transfers.iter().filter_map(|transfer| {
-                // TODO: remove once full mint detection is working
                 if transfer.mint.is_empty() {
-                    log::warn!("found empty mint");
+                    log::warn!("found empty mint {transfer:#?}");
                     return None;
                 }
                 let str_id = format_id(block_number, counter);
@@ -63,7 +62,6 @@ impl TransferParser {
                 Some(transfer_schema)
             }).collect::<Vec<_>>();
             for (transfer_id, transfer_schema) in transfer_schemas {
-                //log::info!("transfer(id={transfer_id}, schema={transfer_schema:#?})");
                 body.push(serde_json::json!({"index": {"_id": transfer_id}}).into());
                 body.push(serde_json::json!(transfer_schema).into());
             }
