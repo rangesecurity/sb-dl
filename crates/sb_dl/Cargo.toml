@@ -79,6 +79,8 @@ version = "0.6"
 version = "0.7"
 [dependencies.chrono]
 version = "0.4"
+[dependencies.elasticsearch]
+version = "8.15.0-alpha.1"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]

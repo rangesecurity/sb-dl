@@ -190,6 +190,9 @@ pub mod token {
         static ref MINT_TO_CHECKED: String = "mintToChecked".to_string();
         static ref BURN_CHECKED: String = "burnChecked".to_string();
         static ref CLOSE_ACCOUNT: String = "closeAccount".to_string();
+        static ref INITIALIZE_ACCOUNT: String = "initializeAccount".to_string();
+        static ref INITIALIZE_ACCOUNT_2: String = "initializeAccount2".to_string();
+        static ref INITIALIZE_ACCOUNT_3: String = "initializeAccoun3".to_string();
     }
 
     #[derive(Clone, Debug)]
@@ -200,6 +203,9 @@ pub mod token {
         TransferChecked(TransferChecked),
         MintToChecked(MintToChecked),
         BurnChecked(BurnChecked),
+        // used for initializeAccount or initializeAccount2
+        InitializeAccount(InitializeAccount),
+        InitializeAccount3(InitializeAccount3)
         // temporarily omit instruction until account closure is fully supported
         //CloseAccount(CloseAccount),
     }
@@ -261,6 +267,23 @@ pub mod token {
         pub amount: Option<String>,
     }
 
+    /// same structure is used for "initializeAccount2"
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    pub struct InitializeAccount {
+        pub account: String,
+        pub mint: String,
+        pub owner: String,
+        #[serde(alias = "rentSysvar")]
+        pub rent_sysvar: String,
+    }
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    pub struct InitializeAccount3 {
+        pub account: String,
+        pub mint: String,
+        pub owner: String,
+    }
+
+
     /// # Returns
     ///
     /// Err is decoding failed
@@ -292,6 +315,14 @@ pub mod token {
             )))
         } else if BURN_CHECKED.eq(ix_type) {
             Ok(Some(TokenInstructions::BurnChecked(
+                serde_json::from_value(partially_decoded.info)?,
+            )))
+        } else if INITIALIZE_ACCOUNT.eq(ix_type) || INITIALIZE_ACCOUNT_2.eq(ix_type) {
+            Ok(Some(TokenInstructions::InitializeAccount(
+                serde_json::from_value(partially_decoded.info)?,
+            )))
+        } else if INITIALIZE_ACCOUNT_3.eq(ix_type) {
+            Ok(Some(TokenInstructions::InitializeAccount3(
                 serde_json::from_value(partially_decoded.info)?,
             )))
         } /*else if CLOSE_ACCOUNT.eq(ix_type) {

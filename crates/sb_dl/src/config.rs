@@ -9,6 +9,7 @@ pub struct Config {
     pub db_url: String,
     pub geyser: Geyser,
     pub rpc_url: String,
+    pub elasticsearch: ElasticSearch,
     /// address of a remote postgres node
     pub remotedb_url: String,
 }
@@ -32,6 +33,12 @@ pub struct BigTableConfig {
     pub max_decoding_size: usize,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ElasticSearch {
+    pub url: String,
+    pub storage_version: u64
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -43,6 +50,10 @@ impl Default for Config {
                 token: "".to_string(),
                 max_decoding_size: 100 * 1024 * 1024,
                 max_encoding_size: 100 * 1024 * 1024,
+            },
+            elasticsearch: ElasticSearch {
+                url: "http://localhost:9200".to_string(),
+                storage_version: 2,
             },
             remotedb_url: "postgres://postgres:password123@localhost/sbdl".to_string(),
         }

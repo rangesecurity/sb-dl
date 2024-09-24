@@ -52,13 +52,13 @@ pub fn create_ordered_transfer_for_block(block: UiConfirmedBlock) -> Result<Vec<
                     log::warn!("found no signatures");
                     return None;
                 }
-                ui_tx.signatures[0].clone()
+                &ui_tx.signatures[0]
             } else {
                 log::warn!("unsupportd tx type");
                 return None;
             };
             let transfer_flow = prepare_transfer_flow_for_tx(&tx)?;
-            match create_ordered_transfers(&tx_hash, transfer_flow) {
+            match create_ordered_transfers(tx_hash, transfer_flow) {
                 Ok(ordered_transfers) => Some(ordered_transfers),
                 Err(err) => {
                     log::debug!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
@@ -125,7 +125,7 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option
     // pre_balances[0] is equal to account_keys[0]
     let _pre_balances = tx_meta.pre_balances.clone();
     let _post_balances = tx_meta.post_balances.clone();
-
+    
     // pre_token_balances[X].account_index = 1 is equal to account_keys[1]
     let pre_token_balances = if let OptionSerializer::Some(bals) = &tx_meta.pre_token_balances {
         bals.clone()
@@ -145,8 +145,14 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option
 
     let (account_keys, outer_instructions) = get_account_keys_and_outer_instructions(&tx).ok()?;
 
-    let token_mints_by_account =
+    let mut token_mints_by_account =
         get_token_mints_by_owner(&token_owner_infos_by_index, &account_keys);
+
+        extract_token_mints_from_account_init_instructions(
+            &inner_instructions,
+            &outer_instructions,
+            &mut token_mints_by_account
+        );
 
     let inner_instructions_by_index =
         get_inner_instructions_by_index(&token_mints_by_account, &inner_instructions).ok()?;
@@ -234,6 +240,11 @@ fn get_inner_instructions_by_index(
                 if let Some(token_mint) = token_mints_by_account.get(&ix.source) {
                     ix.mint = Some(token_mint.clone());
                 }
+                if ix.mint.is_none() {
+                    if let Some(token_mint) = token_mints_by_account.get(&ix.destination) {
+                        ix.mint = Some(token_mint.clone());
+                    }
+                }
             }
 
             decoded_instructions.push(decoded_ix);
@@ -279,6 +290,11 @@ fn get_outer_instructions_by_index(
         {
             if let Some(token_mint) = token_mints_by_account.get(&ix.source) {
                 ix.mint = Some(token_mint.clone());
+            }
+            if ix.mint.is_none() {
+                if let Some(token_mint) = token_mints_by_account.get(&ix.destination) {
+                    ix.mint = Some(token_mint.clone());
+                }
             }
         }
 
@@ -389,8 +405,11 @@ fn create_ordered_transfers(
             .get(&key)
             .with_context(|| "should not be None")?;
         if let Some(transfer) = outer_transfer {
-            let transfer: Transfer = From::from(transfer.clone());
-            ordered_transfers.push(transfer);
+            let transfer: Option<Transfer> = From::from(transfer.clone());
+            if let Some(transfer) = transfer {
+                ordered_transfers.push(transfer);
+            }
+            
         }
         if !inner_transfers.contains_key(&key) {
             // no inner transfers
@@ -400,8 +419,10 @@ fn create_ordered_transfers(
             .get(&key)
             .with_context(|| format!("should not be None for key {key}"))?;
         for inner_transfer in inner_transfers {
-            let transfer: Transfer = From::from(inner_transfer.clone());
-            ordered_transfers.push(transfer);
+            let transfer: Option<Transfer> = From::from(inner_transfer.clone());
+            if let Some(transfer) = transfer {
+                ordered_transfers.push(transfer);
+            }
         }
     }
     if ordered_transfers.is_empty() {
@@ -411,4 +432,73 @@ fn create_ordered_transfers(
         transfers: ordered_transfers,
         tx_hash: tx_hash.to_string(),
     })
+}
+
+/// extracts token mints from initializeAccount, initializeAccount2, initializeAccount3 instructions
+fn extract_token_mints_from_account_init_instructions(
+    inner_instructions: &[UiInnerInstructions],
+    outer_instructions: &[UiInstruction],
+    token_mints_by_account: &mut HashMap<String, String>, 
+) {
+    for inner_ix in inner_instructions {
+        for ix in &inner_ix.instructions {
+            // token2022, spl-token, and system program will always be parsed programs will always be parsed
+            let UiInstruction::Parsed(ui_ix) = ix else {
+                continue;
+            };
+
+            let UiParsedInstruction::Parsed(parsed_ix) = ui_ix else {
+                continue;
+            };
+
+            let mut decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
+                Ok(Some(decoded)) => decoded,
+                Ok(None) => continue, // unrecognized instruction
+                Err(err) => continue,
+            };
+            let DecodedInstruction::TokenInstruction(token_ix) = decoded_ix else {
+                continue;
+            };
+            match token_ix {
+                TokenInstructions::InitializeAccount(init_account) => {
+                    token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+                }
+                TokenInstructions::InitializeAccount3(init_account) => {
+                    token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+
+                },
+                _ => continue,
+            }
+        }
+    }
+    for ix in outer_instructions {
+
+            // token2022, spl-token, and system program will always be parsed programs will always be parsed
+            let UiInstruction::Parsed(ui_ix) = ix else {
+                continue;
+            };
+
+            let UiParsedInstruction::Parsed(parsed_ix) = ui_ix else {
+                continue;
+            };
+
+        let mut decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
+            Ok(Some(decoded)) => decoded,
+            Ok(None) => continue, // unrecognized instruction
+            Err(err) => continue,
+        };
+        let DecodedInstruction::TokenInstruction(token_ix) = decoded_ix else {
+            continue;
+        };
+        match token_ix {
+            TokenInstructions::InitializeAccount(init_account) => {
+                token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+            }
+            TokenInstructions::InitializeAccount3(init_account) => {
+                token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+
+            },
+            _ => continue,
+        }
+    }
 }

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context};
-use diesel::{prelude::*, sql_types::BigInt};
+use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::models::{

@@ -3,6 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use anyhow::{anyhow, Context};
 use clap::ArgMatches;
 use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::BlockTableChoice};
+use futures::StreamExt;
 use sb_dl::config::Config;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
@@ -284,5 +285,3 @@ async fn get_slot_for_block(
     };
     return Ok(Some((slot, sample_tx_hash)));
 }
-
-

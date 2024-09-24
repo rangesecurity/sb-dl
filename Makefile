@@ -1,6 +1,7 @@
 .PHONY: cli
 cli:
 	cargo build --bin sb_dl
+	cp target/debug/sb_dl .
 
 .PHONY: cli-release
 cli-release:
