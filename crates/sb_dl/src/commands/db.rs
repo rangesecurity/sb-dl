@@ -110,38 +110,133 @@ pub async fn guess_slot_numbers(
         slots_to_fetch
     };
     let cfg = Config::load(config_path).await?;
-    let pool = db::new_connection_pool(&cfg.db_url, 10)?;
+    let pool = db::new_connection_pool(&cfg.db_url, 20)?;
+    let remote_pool = db::new_connection_pool(&cfg.remotedb_url, 20)?;
     let mut conn = db::new_connection(&cfg.db_url)?;
     let mut remote_conn = db::new_connection(&cfg.remotedb_url)?;
 
-    let mut block_to_slot: HashMap<u64, u64> = HashMap::default();
     let client = db::client::Client {};
-    let total_blocks = blocks_to_fetch.len();
-    let mut total_failures = 0;
-    for (idx, block_to_fetch) in blocks_to_fetch.iter().enumerate() {
-        log::info!("fetchin block {idx}/{total_blocks}");
 
-        let mut next_block: Vec<Blocks> = vec![];
-        next_block = client.select_block(&mut remote_conn, BlockFilter::Number((block_to_fetch+1) as i64), BlockTableChoice::Blocks2)?;
-        if next_block.is_empty() {
-            next_block = client.select_block(&mut remote_conn, BlockFilter::Number((block_to_fetch+1) as i64), BlockTableChoice::Blocks)?;
-            if next_block.is_empty() {
-                next_block = client.select_block(&mut conn, BlockFilter::Number((block_to_fetch+1) as i64), BlockTableChoice::Blocks2)?;
-                if next_block.is_empty() {
-                    next_block = client.select_block(&mut conn, BlockFilter::Number((block_to_fetch+1) as i64), BlockTableChoice::Blocks)?;
-                    if next_block.is_empty() {
-                        total_failures += 1;
-                        log::warn!("failed to find next block {block_to_fetch}");
-                        continue;
+
+    let mut db_block_1_indexed: HashSet<u64> = HashSet::default();
+    let mut db_block_2_indexed: HashSet<u64> = HashSet::default();
+
+    {
+        client.indexed_blocks(&mut conn, BlockTableChoice::Blocks)?.into_iter().for_each(|block| {
+            db_block_1_indexed.insert(block as u64);
+        });
+        client.indexed_blocks(&mut conn, BlockTableChoice::Blocks2)?.into_iter().for_each(|block| {
+            db_block_2_indexed.insert(block as u64);
+        });
+    }
+    let mut remote_db_block_1_indexed: HashSet<u64> = HashSet::default();
+    let mut remote_db_block_2_indexed: HashSet<u64> = HashSet::default();
+    {
+        client.indexed_blocks(&mut remote_conn, BlockTableChoice::Blocks)?.into_iter().for_each(|block| {
+            remote_db_block_1_indexed.insert(block as u64);
+        });
+        client.indexed_blocks(&mut remote_conn, BlockTableChoice::Blocks2)?.into_iter().for_each(|block| {
+            remote_db_block_2_indexed.insert(block as u64);
+        });
+    }
+    
+    let db_block_1_indexed = Arc::new(db_block_1_indexed);
+    let db_block_2_indexed = Arc::new(db_block_2_indexed);
+    let remote_db_block_1_indexed = Arc::new(remote_db_block_1_indexed);
+    let remote_db_block_2_indexed = Arc::new(remote_db_block_2_indexed);
+
+    let total_blocks = blocks_to_fetch.len();
+    let mut total_failures = 0_u64;
+
+    let mut block_to_slot: HashMap<u64, u64> = HashMap::default();
+
+    let block_to_slot = stream::iter(blocks_to_fetch).enumerate().map(|(idx, block_to_fetch)| {
+        if idx as u64 % 500 == 0 {
+            log::info!("fetching block {idx}/{total_blocks}");
+        }
+        let db_block_1_indexed = db_block_1_indexed.clone();
+        let db_block_2_indexed = db_block_2_indexed.clone();
+        let remote_db_block_1_indexed = remote_db_block_1_indexed.clone();
+        let remote_db_block_2_indexed = remote_db_block_2_indexed.clone();
+        let pool = pool.clone();
+        let remote_pool = remote_pool.clone();
+        async move {
+            let mut next_block = if db_block_1_indexed.contains(&(block_to_fetch + 1)) {
+                match pool.get() {
+                    Ok(mut conn) => {
+                        client.select_block(
+                            &mut conn,
+                            BlockFilter::Number((block_to_fetch + 1) as i64),
+                            BlockTableChoice::Blocks
+                        ).unwrap_or_default()
+                    }
+                    Err(err) => {
+                        log::error!("failed to get connection");
+                        return (0, 0)
                     }
                 }
+
+            } else if db_block_2_indexed.contains(&(block_to_fetch + 1)) {
+                match pool.get() {
+                    Ok(mut conn) => {
+                        client.select_block(
+                            &mut conn,
+                            BlockFilter::Number((block_to_fetch + 1) as i64),
+                            BlockTableChoice::Blocks2
+                        ).unwrap_or_default()
+                    }
+                    Err(err) => {
+                        log::error!("failed to get connection");
+                        return (0, 0)
+                    }
+                }
+
+            } else if remote_db_block_1_indexed.contains(&(block_to_fetch + 1)) {
+                match remote_pool.get() {
+                    Ok(mut conn) => {
+                        client.select_block(
+                            &mut conn,
+                            BlockFilter::Number((block_to_fetch + 1) as i64),
+                            BlockTableChoice::Blocks
+                        ).unwrap_or_default()
+                    }
+                    Err(err) => {
+                        log::error!("failed to get connection");
+                        return (0, 0)
+                    }
+                }
+
+            } else if remote_db_block_2_indexed.contains(&(block_to_fetch + 1)) {
+                match remote_pool.get() {
+                    Ok(mut conn) => {
+                        client.select_block(
+                            &mut conn,
+                            BlockFilter::Number((block_to_fetch + 1) as i64),
+                            BlockTableChoice::Blocks2
+                        ).unwrap_or_default()
+                    }
+                    Err(err) => {
+                        log::error!("failed to get connection");
+                        return (0, 0)
+                    }
+                }
+
+            } else {
+                log::debug!("failed to find block {block_to_fetch}");
+                return (0, 0)
+            };
+            if next_block.is_empty() {
+                log::debug!("failed to find block {block_to_fetch}");
+                return (0, 0)
             }
+            let next_block = std::mem::take(&mut next_block[0]);
+            let block: UiConfirmedBlock = serde_json::from_value(next_block.data).unwrap();
+            (block_to_fetch as u64, block.parent_slot as u64)
         }
-        let next_block = next_block[0].clone();
-        let block: UiConfirmedBlock = serde_json::from_value(next_block.data)?;
-        block_to_slot.insert(*block_to_fetch, block.parent_slot);
-    }
-    log::info!("failed to find {total_failures}/{total_blocks}");
+    })
+    .buffer_unordered(40)
+    .collect::<HashMap<_, _>>()
+    .await;
     let mut fh = File::create("slots_to_fetch.txt").await?;
     for (_, slot) in block_to_slot {
         fh.write_all(format!("{slot}\n").as_bytes()).await?;
