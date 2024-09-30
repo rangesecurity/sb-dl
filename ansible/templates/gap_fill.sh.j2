@@ -2,7 +2,7 @@
 
 while true; do
     # The SQL query
-    SQL_QUERY="select blocks.number + 1 gap_start from blocks where blocks.number >= 261504662 AND NOT EXISTS ( SELECT NULL FROM blocks b WHERE b.number = blocks.number + 1 ) order by blocks.number asc limit 10;"
+    SQL_QUERY="select blocks.number + 1 gap_start from blocks where blocks.number >= 277504662 AND NOT EXISTS ( SELECT NULL FROM blocks b WHERE b.number = blocks.number + 1 ) order by blocks.number asc limit 10;"
 
     # Execute the query and store results in an array
     readarray -t gap_starts < <(PGPASSWORD="your_password" psql -d solana -t -c "$SQL_QUERY")
