@@ -111,6 +111,14 @@ async fn main() -> Result<()> {
                             .action(clap::ArgAction::SetTrue)
                             .default_value("false")
                             .required(false)
+                        )
+                        .arg(
+                            Arg::new("use-remote")
+                            .long("use-remote")
+                            .help("if present use remotedb")
+                            .action(clap::ArgAction::SetTrue)
+                            .default_value("false")
+                            .required(false)
                         ),
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag())
@@ -200,11 +208,34 @@ async fn main() -> Result<()> {
             .arg(
                 Arg::new("input")
                 .long("input")
+            )
+            .arg(
+                Arg::new("limit")
+                .long("limit")
+                .value_parser(clap::value_parser!(usize))
+                .default_value("0")
+            )
+            .arg(
+                Arg::new("threads")
+                .long("threads")
+                .value_parser(clap::value_parser!(usize))
+                .default_value("2")
             ),
             Command::new("get-tx")
             .arg(
                 Arg::new("tx-hash")
                 .long("tx-hash")
+            ),
+            Command::new("get-missing-slots-in-range")
+            .arg(
+                Arg::new("start")
+                .long("start")
+                .value_parser(clap::value_parser!(u64))
+            )
+            .arg(
+                Arg::new("end")
+                .long("end")
+                .value_parser(clap::value_parser!(u64))
             )
         ])
         .get_matches();
@@ -273,6 +304,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("find-missing-blocks", fmb)) => commands::db::find_missing_blocks(fmb, config_path).await,
         Some(("guess-slot-numbers", gsn)) => commands::db::guess_slot_numbers(gsn, config_path).await,
         Some(("get-tx", gt)) => commands::services::downloaders::get_transaction(gt, config_path).await,
+        Some(("get-missing-slots-in-range", gmsir)) => commands::db::get_missing_slots_in_range(gmsir, config_path).await,
         _ => Err(anyhow!("invalid subcommand")),
     }
 }

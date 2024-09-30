@@ -140,6 +140,7 @@ pub async fn manual_bigtable_downloader(
     let threads = *matches.get_one::<usize>("threads").unwrap();
     let input = matches.get_one::<String>("input").unwrap();
     let full_range = matches.get_flag("full-range");
+    let use_remote = matches.get_flag("use-remote");
     // load all currently indexed block number to avoid re-downloading already indexed block data
     let mut already_indexed: HashSet<u64> = {
         let mut conn = db::new_connection(&cfg.db_url)?;
@@ -199,7 +200,11 @@ pub async fn manual_bigtable_downloader(
             while let Some(line) = lines.next_line().await? {
                 // Parse each line as a u64
                 match line.trim().parse::<u64>() {
-                    Ok(number) => slots_to_fetch.push(number),
+                    Ok(number) => {
+                        if !already_indexed.contains(&number) {
+                            slots_to_fetch.push(number);
+                        }
+                    },
                     Err(_) => log::warn!("Warning: Skipping invalid line: {}", line),
                 }
             }
@@ -213,7 +218,13 @@ pub async fn manual_bigtable_downloader(
         }
 
     };
-
+    let db_url = if use_remote {
+        log::info!("using remote db");
+        &cfg.remotedb_url
+    } else {
+        &cfg.db_url
+    };
+    log::info!("found {} slots to fetch", slots_to_fetch.len());
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
     let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<BlockInfo>(10_000 as usize);
 
@@ -222,8 +233,7 @@ pub async fn manual_bigtable_downloader(
     let sig_term = signal(SignalKind::terminate())?;
 
     let downloader = Arc::new(Downloader::new(cfg.bigtable).await?);
-
-    let pool = db::new_connection_pool(&cfg.db_url, threads as u32 * 2)?;
+    let pool = db::new_connection_pool(db_url, threads as u32 * 2)?;
 
     // start the background persistence task
     tokio::task::spawn(async move {

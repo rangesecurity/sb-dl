@@ -125,26 +125,30 @@ impl Downloader {
                 let _ = exit_ch.await;
                 exit.store(true, Ordering::SeqCst);
             });
-        }        // instantiate the client which will be cloned between threads
+        }
+        // instantiate the client which will be cloned between threads
         let client = self.conn.client();
-        for slot in slots_to_fetch {
-            if already_indexed.contains(&slot) {
-                continue;
-            }
+        stream::iter(slots_to_fetch).map(|slot| {
             let blocks_tx = blocks_tx.clone();
             let client = client.clone();
             let max_decoding_size = self.max_decoding_size;
             let exit = exit.clone();
-            if !exit.load(Ordering::SeqCst) {
-                Self::get_and_process_block(
-                    client,
-                    max_decoding_size,
-                    slot,
-                    no_minimization,
-                    blocks_tx
-                ).await;
+            async move {
+                if !exit.load(Ordering::SeqCst) {
+                    Self::get_and_process_block(
+                        client,
+                        max_decoding_size,
+                        slot,
+                        no_minimization,
+                        blocks_tx
+                    ).await;
+                }
+
             }
-        }
+        })
+        .buffer_unordered(threads)
+        .collect::<Vec<_>>()
+        .await;
         Ok(())
     }
     async fn get_and_process_block(
@@ -158,12 +162,11 @@ impl Downloader {
         log::info!("retrieving block {slot}");
         match Self::get_confirmed_block(client, max_decoding_size, slot).await {
             Ok(block) => {
-                log::info!("downloaded block");
                 if let Some(block) = block {
                     let block_height = if let Some(block_height) = block.block_height {
                         block_height
                     } else {
-                        log::warn!("block({slot}) height is none");
+                        log::debug!("block({slot}) height is none");
                         return;
                     };
                     // post process the block to handle encoding and space minimization

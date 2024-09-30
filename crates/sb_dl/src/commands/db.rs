@@ -1,12 +1,13 @@
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use std::{collections::{HashMap, HashSet}, sync::{atomic::AtomicU64, Arc}};
 
 use anyhow::{anyhow, Context};
 use clap::ArgMatches;
 use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::{BlockTableChoice, Blocks}};
+use futures::stream::{self, StreamExt};
 use sb_dl::config::Config;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
 use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransactionEncoding};
-use tokio::{fs::File, io::{AsyncBufReadExt, AsyncWriteExt, BufReader}, task::JoinSet};
+use tokio::{fs::File, io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter}, task::JoinSet};
 
 /// given a range, find blocks that are missing
 pub async fn find_missing_blocks(
@@ -67,7 +68,6 @@ pub async fn find_missing_blocks(
         for block in blocks_1_indexed.into_iter() {
             indexed.insert(block as u64);
         }
-        
     }
     let mut missing_blocks = vec![];
 
@@ -79,9 +79,79 @@ pub async fn find_missing_blocks(
 
     log::info!("found {} missing blocks in range(start={start}, end={end})", missing_blocks.len());
 
-    let mut fh = File::create(output).await?;
+    let mut fh = BufWriter::new(File::create(output).await?);
     for missing_block in missing_blocks {
         fh.write_all(format!("{missing_block}\n").as_bytes()).await?;
+    }
+    fh.flush().await.with_context(|| "failed to flush file")
+}
+
+pub async fn get_missing_slots_in_range(
+    matches: &ArgMatches,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let start = matches.get_one::<u64>("start").unwrap();
+    let end = matches.get_one::<u64>("end").unwrap();
+    let cfg = Config::load(config_path).await?;
+
+    let mut missing_slots = HashSet::new();
+
+
+    // load all currently indexed block number to avoid re-downloading already indexed block data
+    let mut indexed_slots: HashSet<u64> = {
+        let mut conn = db::new_connection(&cfg.db_url)?;
+
+        // perform db migrations
+        run_migrations(&mut conn);
+
+        let client = db::client::Client {};
+        let mut blocks_1_indexed = client
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        let mut blocks_2_indexed = client
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks2)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        blocks_1_indexed.append(&mut blocks_2_indexed);
+        blocks_1_indexed.into_iter().map(|block| block as u64).collect::<HashSet<_>>()
+    };
+    {
+        let mut conn = db::new_connection(&cfg.remotedb_url)?;
+        // merge indexed blocks from remotedb
+
+        let client = db::client::Client {};
+        let mut blocks_1_indexed = client
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        let mut blocks_2_indexed = client
+            .indexed_slots(&mut conn, BlockTableChoice::Blocks2)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|block| Some(block? as u64))
+            .collect::<Vec<_>>();
+        blocks_1_indexed.append(&mut blocks_2_indexed);
+
+        for block in blocks_1_indexed.into_iter() {
+            indexed_slots.insert(block as u64);
+        }
+    }
+    for slot in *start..=*end {
+        if !indexed_slots.contains(&slot) {
+            missing_slots.insert(slot);
+        }
+    }
+
+    let mut fh = File::create("slots_to_fetch.txt").await?;
+    for slot in missing_slots {
+        fh.write_all(format!("{slot}\n").as_bytes()).await?;
     }
     fh.flush().await.with_context(|| "failed to flush file")
 }
@@ -91,6 +161,41 @@ pub async fn guess_slot_numbers(
     config_path: &str
 ) -> anyhow::Result<()> {
     let input = matches.get_one::<String>("input").unwrap();
+    let limit = matches.get_one::<usize>("limit").unwrap();
+    let threads = matches.get_one::<usize>("threads").unwrap();
+
+    let cfg = Config::load(config_path).await?;
+    let pool = db::new_connection_pool(&cfg.db_url, *threads as u32)?;
+    let remote_pool = db::new_connection_pool(&cfg.remotedb_url, *threads as u32)?;
+
+    let client = db::client::Client {};
+
+
+    let mut db_block_1_indexed: HashSet<u64> = HashSet::default();
+    let mut db_block_2_indexed: HashSet<u64> = HashSet::default();
+
+    {    
+        let mut conn = db::new_connection(&cfg.db_url)?;
+
+        client.indexed_blocks(&mut conn, BlockTableChoice::Blocks)?.into_iter().for_each(|block| {
+            db_block_1_indexed.insert(block as u64);
+        });
+        client.indexed_blocks(&mut conn, BlockTableChoice::Blocks2)?.into_iter().for_each(|block| {
+            db_block_2_indexed.insert(block as u64);
+        });
+    }
+    let mut remote_db_block_1_indexed: HashSet<u64> = HashSet::default();
+    let mut remote_db_block_2_indexed: HashSet<u64> = HashSet::default();
+    {
+        let mut remote_conn = db::new_connection(&cfg.remotedb_url)?;
+
+        client.indexed_blocks(&mut remote_conn, BlockTableChoice::Blocks)?.into_iter().for_each(|block| {
+            remote_db_block_1_indexed.insert(block as u64);
+        });
+        client.indexed_blocks(&mut remote_conn, BlockTableChoice::Blocks2)?.into_iter().for_each(|block| {
+            remote_db_block_2_indexed.insert(block as u64);
+        });
+    }
     let blocks_to_fetch = {
         let mut slots_to_fetch = vec![];
         {
@@ -102,55 +207,27 @@ pub async fn guess_slot_numbers(
             while let Some(line) = lines.next_line().await? {
                 // Parse each line as a u64
                 match line.trim().parse::<u64>() {
-                    Ok(number) => slots_to_fetch.push(number),
+                    Ok(number) => {
+                        if db_block_1_indexed.contains(&number) || db_block_2_indexed.contains(&number) || remote_db_block_1_indexed.contains(&number) || remote_db_block_2_indexed.contains(&number) {
+                            continue;
+                        } else {
+                            slots_to_fetch.push(number);
+                        }
+                    } ,
                     Err(_) => log::warn!("Warning: Skipping invalid line: {}", line),
                 }
             }
         }
         slots_to_fetch
     };
-    let cfg = Config::load(config_path).await?;
-    let pool = db::new_connection_pool(&cfg.db_url, 20)?;
-    let remote_pool = db::new_connection_pool(&cfg.remotedb_url, 20)?;
-    let mut conn = db::new_connection(&cfg.db_url)?;
-    let mut remote_conn = db::new_connection(&cfg.remotedb_url)?;
-
-    let client = db::client::Client {};
-
-
-    let mut db_block_1_indexed: HashSet<u64> = HashSet::default();
-    let mut db_block_2_indexed: HashSet<u64> = HashSet::default();
-
-    {
-        client.indexed_blocks(&mut conn, BlockTableChoice::Blocks)?.into_iter().for_each(|block| {
-            db_block_1_indexed.insert(block as u64);
-        });
-        client.indexed_blocks(&mut conn, BlockTableChoice::Blocks2)?.into_iter().for_each(|block| {
-            db_block_2_indexed.insert(block as u64);
-        });
-    }
-    let mut remote_db_block_1_indexed: HashSet<u64> = HashSet::default();
-    let mut remote_db_block_2_indexed: HashSet<u64> = HashSet::default();
-    {
-        client.indexed_blocks(&mut remote_conn, BlockTableChoice::Blocks)?.into_iter().for_each(|block| {
-            remote_db_block_1_indexed.insert(block as u64);
-        });
-        client.indexed_blocks(&mut remote_conn, BlockTableChoice::Blocks2)?.into_iter().for_each(|block| {
-            remote_db_block_2_indexed.insert(block as u64);
-        });
-    }
-    
     let db_block_1_indexed = Arc::new(db_block_1_indexed);
     let db_block_2_indexed = Arc::new(db_block_2_indexed);
     let remote_db_block_1_indexed = Arc::new(remote_db_block_1_indexed);
     let remote_db_block_2_indexed = Arc::new(remote_db_block_2_indexed);
 
-    let total_blocks = blocks_to_fetch.len();
-    let mut total_failures = 0_u64;
+    let total_blocks = blocks_to_fetch.len().min(*limit);
 
-    let mut block_to_slot: HashMap<u64, u64> = HashMap::default();
-
-    let block_to_slot = stream::iter(blocks_to_fetch).enumerate().map(|(idx, block_to_fetch)| {
+    let block_to_slot = stream::iter(blocks_to_fetch).enumerate().take(*limit).map(|(idx, block_to_fetch)| {
         if idx as u64 % 500 == 0 {
             log::info!("fetching block {idx}/{total_blocks}");
         }
@@ -234,12 +311,15 @@ pub async fn guess_slot_numbers(
             (block_to_fetch as u64, block.parent_slot as u64)
         }
     })
-    .buffer_unordered(40)
+    .buffer_unordered(*threads - 1)
     .collect::<HashMap<_, _>>()
     .await;
-    let mut fh = File::create("slots_to_fetch.txt").await?;
+    let mut fh = BufWriter::new(File::create("slots_to_fetch.txt").await?);
     for (_, slot) in block_to_slot {
-        fh.write_all(format!("{slot}\n").as_bytes()).await?;
+        if slot != 0 {
+            fh.write_all(format!("{slot}\n").as_bytes()).await?;
+        }
+
     }
     fh.flush().await.with_context(|| "failed to flush file")
 }
