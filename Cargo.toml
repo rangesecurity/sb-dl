@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [ "crates/db", "crates/sb_dl", "crates/storage-bigtable", "crates/storage-bigtable/build-proto"]
+[workspace.package]
+rust-version = "1.78"
 [profile.release]
 opt-level = 3
 lto = "fat"
