@@ -61,7 +61,7 @@ pub fn create_ordered_transfer_for_block(block: UiConfirmedBlock) -> Result<Vec<
             match create_ordered_transfers(tx_hash, transfer_flow) {
                 Ok(ordered_transfers) => Some(ordered_transfers),
                 Err(err) => {
-                    log::warn!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
+                    log::debug!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
                     return None;
                 }
             }
@@ -140,6 +140,8 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option
 
     let account_keys = get_account_keys(&tx).ok()?;
 
+    let token_account_owners = owner_of_token_accounts_by_account(&pre_token_balances, &post_token_balances, &account_keys).ok()?;
+
     let token_owner_infos_by_index =
         prepare_token_owner_infos(&pre_token_balances, &post_token_balances);
 
@@ -155,11 +157,13 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option
             &mut token_mints_by_account
         );
 
-    let inner_instructions_by_index =
+    let mut inner_instructions_by_index =
         get_inner_instructions_by_index(&token_mints_by_account, &inner_instructions).ok()?;
 
-    let outer_instructions_by_index =
+    let mut outer_instructions_by_index =
         get_outer_instructions_by_index(&outer_instructions, &token_mints_by_account).ok()?;
+
+    replace_decoded_instruction_spl_transfer_recipients(&mut inner_instructions_by_index, &mut outer_instructions_by_index, token_account_owners);
 
     Some(get_ordered_transfers(
         outer_instructions_by_index,
@@ -341,6 +345,33 @@ fn get_token_mints_by_owner(
     token_mints_by_account
 }
 
+
+fn owner_of_token_accounts_by_account(
+    pre_token_balances: &[UiTransactionTokenBalance],
+    post_token_balances: &[UiTransactionTokenBalance],
+    account_keys: &[ParsedAccount]
+) -> Result<HashMap<
+    // token account
+    String,
+    // owner
+    String,
+>> {
+    let mut owner_token_accounts: HashMap<
+    // token account
+    String, 
+    // owner
+    String,
+> = HashMap::default();
+    pre_token_balances.iter().chain(post_token_balances.iter()).for_each(|token_balance| {
+        if let OptionSerializer::Some(owner) = &token_balance.owner {
+
+            if let Some(account) = account_keys.get(token_balance.account_index as usize) {
+                owner_token_accounts.insert(account.pubkey.clone(), owner.clone());
+            }
+        }
+    });
+    Ok(owner_token_accounts)
+}
 fn get_ordered_transfers(
     outer_instruction_by_index: HashMap<u8, DecodedInstruction>,
     inner_instruction_by_index: HashMap<u8, Vec<DecodedInstruction>>,
@@ -504,4 +535,95 @@ fn extract_token_mints_from_account_init_instructions(
             _ => continue,
         }
     }
+}
+
+// replaces the recipient information with the wallet address, as opposed to token account information
+fn replace_decoded_instruction_spl_transfer_recipients(
+    inner_instructions_by_index: &mut HashMap<u8, Vec<DecodedInstruction>>,
+    outer_instruction_by_index: &mut HashMap<u8, DecodedInstruction>,
+    owner_of_token_accounts_by_account: HashMap<String /* token account */, String /* owner */>
+) {
+    inner_instructions_by_index.iter_mut().for_each(|(_, ixs)| {
+        for ix in ixs {
+            let DecodedInstruction::TokenInstruction(token_ixs) = ix else {
+                return;
+            };
+            match token_ixs {
+                TokenInstructions::Transfer(tx) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&tx.destination) {
+                        tx.destination = addr.clone();
+                    }
+                }
+                TokenInstructions::TransferChecked(tx_checked) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&tx_checked.destination) {
+                        tx_checked.destination = addr.clone();
+                    }
+                }
+                TokenInstructions::MintTo(mint) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&mint.account) {
+                        mint.account = addr.clone();
+                    }
+                }
+                TokenInstructions::MintToChecked(mint_checked) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&mint_checked.account) {
+                        mint_checked.account = addr.clone();
+                    }
+                }
+                TokenInstructions::Burn(burn) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&burn.account) {
+                        burn.account = addr.clone();
+                    }
+                }
+                TokenInstructions::BurnChecked(burn_checked) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&burn_checked.account) {
+                        burn_checked.account = addr.clone();
+                    }
+                }
+                _ => {
+                    return;
+                }
+            }
+        }
+    });
+
+    outer_instruction_by_index.iter_mut().for_each(|(_, ix)| {
+            let DecodedInstruction::TokenInstruction(token_ixs) = ix else {
+                return;
+            };
+            match token_ixs {
+                TokenInstructions::Transfer(tx) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&tx.destination) {
+                        tx.destination = addr.clone();
+                    }
+                }
+                TokenInstructions::TransferChecked(tx_checked) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&tx_checked.destination) {
+                        tx_checked.destination = addr.clone();
+                    }
+                }
+                TokenInstructions::MintTo(mint) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&mint.account) {
+                        mint.account = addr.clone();
+                    }
+                }
+                TokenInstructions::MintToChecked(mint_checked) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&mint_checked.account) {
+                        mint_checked.account = addr.clone();
+                    }
+                }
+                TokenInstructions::Burn(burn) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&burn.account) {
+                        burn.account = addr.clone();
+                    }
+                }
+                TokenInstructions::BurnChecked(burn_checked) => {
+                    if let Some(addr) = owner_of_token_accounts_by_account.get(&burn_checked.account) {
+                        burn_checked.account = addr.clone();
+                    }
+                }
+                _ => {
+                    return;
+                }
+            }
+    })
 }
