@@ -61,7 +61,7 @@ pub fn create_ordered_transfer_for_block(block: UiConfirmedBlock) -> Result<Vec<
             match create_ordered_transfers(tx_hash, transfer_flow) {
                 Ok(ordered_transfers) => Some(ordered_transfers),
                 Err(err) => {
-                    log::debug!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
+                    log::warn!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
                     return None;
                 }
             }
@@ -138,12 +138,13 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option
         vec![]
     };
 
+    let account_keys = get_account_keys(&tx).ok()?;
+
     let token_owner_infos_by_index =
         prepare_token_owner_infos(&pre_token_balances, &post_token_balances);
 
     let inner_instructions = get_inner_instructions(&tx_meta);
-
-    let (account_keys, outer_instructions) = get_account_keys_and_outer_instructions(&tx).ok()?;
+    let outer_instructions = get_outer_instructions(tx).ok()?;
 
     let mut token_mints_by_account =
         get_token_mints_by_owner(&token_owner_infos_by_index, &account_keys);
@@ -306,22 +307,24 @@ fn get_outer_instructions_by_index(
     Ok(outer_instruction_by_index)
 }
 
-fn get_account_keys_and_outer_instructions(
-    tx: &EncodedTransactionWithStatusMeta,
-) -> Result<(Vec<ParsedAccount>, Vec<UiInstruction>)> {
-    // get the account keys involved in the tx, as well as the outer instructions
+fn get_account_keys(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<ParsedAccount>> {
+    let EncodedTransaction::Json(tx) = &tx.transaction else {
+        return Err(anyhow!("unsupported tx type"))
+    };
+    let UiMessage::Parsed(parsed_msg) = &tx.message else {
+        return Err(anyhow!("sunupported message type"));
+    };
+    return Ok(parsed_msg.account_keys.clone())
+}
 
-    if let EncodedTransaction::Json(tx) = &tx.transaction {
-        match &tx.message {
-            UiMessage::Parsed(parsed_msg) => Ok((
-                parsed_msg.account_keys.clone(),
-                parsed_msg.instructions.clone(),
-            )),
-            UiMessage::Raw(_) => return Err(anyhow!("unsupported")),
-        }
-    } else {
-        return Err(anyhow!("unsupported tx type"));
-    }
+fn get_outer_instructions(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<UiInstruction>> {
+    let EncodedTransaction::Json(tx) = &tx.transaction else {
+        return Err(anyhow!("unsupported tx type"))
+    };
+    let UiMessage::Parsed(parsed_msg) = &tx.message else {
+        return Err(anyhow!("sunupported message type"));
+    };
+    return Ok(parsed_msg.instructions.clone())
 }
 
 fn get_token_mints_by_owner(

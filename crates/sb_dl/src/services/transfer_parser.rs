@@ -177,7 +177,7 @@ impl Schema {
             id,
             version: storage_version,
             category: "solana".to_string(),
-            sender_address_id: format!("solana:{}", tx.sender),
+            sender_address_id: format!("solana:{}", tx.authority.as_ref().unwrap_or(&tx.sender)),
             sender_network: "solana".to_string(),
             sender_height: block_height.to_string(),
             sender_tx_hash: tx_hash.clone(),
