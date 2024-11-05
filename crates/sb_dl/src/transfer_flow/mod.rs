@@ -57,12 +57,18 @@ pub fn create_ordered_transfer_for_block(block: UiConfirmedBlock) -> Result<Vec<
                 log::warn!("unsupportd tx type");
                 return None;
             };
-            let transfer_flow = prepare_transfer_flow_for_tx(&tx)?;
+            let transfer_flow = match prepare_transfer_flow_for_tx(&tx) {
+                Ok(flow) => flow,
+                Err(err) => {
+                    return None;
+                }
+            };
             match create_ordered_transfers(tx_hash, transfer_flow) {
                 Ok(ordered_transfers) => Some(ordered_transfers),
                 Err(err) => {
                     log::debug!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
                     return None;
+
                 }
             }
         })
@@ -116,11 +122,11 @@ pub fn prepare_transfer_flow_for_tx_hash(
     prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")
 }
 
-fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option<TransferFlow> {
-    let tx_meta = tx.meta.as_ref()?;
+fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> anyhow::Result<TransferFlow> {
+    let tx_meta = tx.meta.as_ref().with_context(|| "tx meta is None")?;
     // skip parsing failed transactions
     if tx_meta.err.is_some() {
-        return None;
+        return Err(anyhow!("tx failed"));
     }
     // pre_balances[0] is equal to account_keys[0]
     let _pre_balances = tx_meta.pre_balances.clone();
@@ -138,15 +144,15 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option
         vec![]
     };
 
-    let account_keys = get_account_keys(&tx).ok()?;
+    let account_keys = get_account_keys(&tx).with_context(|| "failed to get account keys")?;
 
-    let token_account_owners = owner_of_token_accounts_by_account(&pre_token_balances, &post_token_balances, &account_keys).ok()?;
+    let token_account_owners = owner_of_token_accounts_by_account(&pre_token_balances, &post_token_balances, &account_keys).with_context(|| "failed to get owner_of_token_accounts")?;
 
     let token_owner_infos_by_index =
         prepare_token_owner_infos(&pre_token_balances, &post_token_balances);
 
     let inner_instructions = get_inner_instructions(&tx_meta);
-    let outer_instructions = get_outer_instructions(tx).ok()?;
+    let outer_instructions = get_outer_instructions(tx).with_context(|| "failed to get outer instructions")?;
 
     let mut token_mints_by_account =
         get_token_mints_by_owner(&token_owner_infos_by_index, &account_keys);
@@ -158,14 +164,14 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> Option
         );
 
     let mut inner_instructions_by_index =
-        get_inner_instructions_by_index(&token_mints_by_account, &inner_instructions).ok()?;
+        get_inner_instructions_by_index(&token_mints_by_account, &inner_instructions).with_context(|| "failed to get inner instructions by index")?;
 
     let mut outer_instructions_by_index =
-        get_outer_instructions_by_index(&outer_instructions, &token_mints_by_account).ok()?;
+        get_outer_instructions_by_index(&outer_instructions, &token_mints_by_account).with_context(|| "failed to get outer instructions by index")?;
 
     replace_decoded_instruction_spl_transfer_recipients(&mut inner_instructions_by_index, &mut outer_instructions_by_index, token_account_owners);
 
-    Some(get_ordered_transfers(
+    Ok(get_ordered_transfers(
         outer_instructions_by_index,
         inner_instructions_by_index,
     ))
@@ -287,7 +293,10 @@ fn get_outer_instructions_by_index(
         let mut decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
             Ok(Some(decoded)) => decoded,
             Ok(None) => continue, // unrecognized instruction
-            Err(err) => return Err(anyhow!("failed to decode instruction {err:#?}")),
+            Err(_) => {
+                // not a valid instruction to decode
+                continue;
+            },
         };
 
         if let DecodedInstruction::TokenInstruction(TokenInstructions::Transfer(ix)) =
