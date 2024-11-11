@@ -20,6 +20,7 @@ pub type TransferFlow = HashMap<
     ),
 >;
 
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OrderedTransfers {
     pub tx_hash: String,
@@ -43,6 +44,11 @@ pub struct Transfer {
     pub mint: String,
     /// the amount that was transferred
     pub amount: String,
+    /// for spl token transfers, this is the address
+    /// which "owns" the `sender` account
+    /// 
+    /// when indexing in elasticsearch, if authority.is_some(), use that instead of `sender`
+    pub authority: Option<String>,
 }
 
 impl From<DecodedInstruction> for Option<Transfer> {
@@ -54,24 +60,28 @@ impl From<DecodedInstruction> for Option<Transfer> {
                     recipient: tx.destination,
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports.to_string(),
+                    authority: None
                 }),
                 SystemInstructions::CreateAccount(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.new_account,
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports.to_string(),
+                    authority: None
                 }),
                 SystemInstructions::CreateAccountWithSeed(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.new_account,
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports.to_string(),
+                    authority: None
                 }),
                 SystemInstructions::TransferWithSeed(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.destination,
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports,
+                    authority: None
                 }),
                 SystemInstructions::WithdrawNonceAccount(tx) => Some(Transfer {
                     sender: tx.nonce_account,
@@ -79,6 +89,7 @@ impl From<DecodedInstruction> for Option<Transfer> {
                     // nonce accounts hold sol
                     mint: SOL_MINT.clone(),
                     amount: tx.lamports,
+                    authority: None
                 }),
             },
             DecodedInstruction::TokenInstruction(ix) => match ix {
@@ -87,6 +98,7 @@ impl From<DecodedInstruction> for Option<Transfer> {
                     recipient: tx.destination,
                     mint: tx.mint.unwrap_or_default(),
                     amount: tx.amount,
+                    authority: tx.authority
                 }),
                 TokenInstructions::MintTo(tx) => Some(Transfer {
                     // mints have no sender, so empty string
@@ -94,6 +106,9 @@ impl From<DecodedInstruction> for Option<Transfer> {
                     recipient: tx.account,
                     mint: tx.mint,
                     amount: tx.amount.to_string(),
+                    // authority: tx.mint_authority,
+                    // todo: should this use mintAuthority
+                    authority: None,
                 }),
                 TokenInstructions::Burn(tx) => Some(Transfer {
                     sender: tx.account,
@@ -101,24 +116,28 @@ impl From<DecodedInstruction> for Option<Transfer> {
                     recipient: "".to_string(),
                     mint: tx.mint,
                     amount: tx.amount.to_string(),
+                    authority: None,
                 }),
                 TokenInstructions::TransferChecked(tx) => Some(Transfer {
                     sender: tx.source,
                     recipient: tx.destination,
                     mint: tx.mint,
                     amount: tx.token_amount.amount,
+                    authority: tx.authority
                 }),
                 TokenInstructions::MintToChecked(tx) => Some(Transfer {
                     sender: "".to_string(),
                     recipient: tx.account,
                     mint: tx.mint,
                     amount: tx.token_amount.amount,
+                    authority: None,
                 }),
                 TokenInstructions::BurnChecked(tx) => Some(Transfer {
                     sender: tx.account,
                     recipient: "".to_string(),
                     mint: tx.mint,
                     amount: tx.token_amount.amount,
+                    authority: None,
                 }),
                 // these instructions are not intended for graphing, but are used for determining mint info
                 // when it is not possible to do so from pre/post token balances

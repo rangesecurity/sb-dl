@@ -218,24 +218,29 @@ pub mod token {
         // this information is missing from the instruction
         // however we can add it after decoding
         pub mint: Option<String>,
+        pub authority: Option<String>,
     }
     #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct MintTo {
         pub mint: String,
         pub account: String,
         pub amount: u64,
+        #[serde(alias = "mintAuthority")]
+        pub mint_authority: String,
     }
     #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct Burn {
         pub account: String,
         pub mint: String,
         pub amount: u64,
+        pub authority: String,
     }
     #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct TransferChecked {
         pub source: String,
         pub mint: String,
         pub destination: String,
+        pub authority: Option<String>,
         #[serde(alias = "tokenAmount")]
         pub token_amount: UiTokenAmount,
     }
