@@ -1,7 +1,7 @@
 use std::{str::FromStr, time::Duration};
 
 use db::{client::Client, migrations::run_migrations, new_connection};
-use sb_dl::{config::Config, programs::squads::v4::derive_vault_pda, services::{idl_indexer::IdlIndexer, squads_indexer::SquadsIndexer}};
+use sb_dl::{config::Config, programs::squads::{v3::MultisigV3, v4::MultisigV4}, services::{idl_indexer::IdlIndexer, squads_indexer::SquadsIndexer}};
 use solana_sdk::pubkey::Pubkey;
 
 pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> anyhow::Result<()> {
@@ -22,7 +22,7 @@ pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> a
         let v4_msigs = indexer.fetch_multisigs_v4().await?;
         log::info!("found {} v4 multisig accounts", v4_msigs.len());
         for (account, msig_info) in v4_msigs.into_iter() {
-            let vault = derive_vault_pda(&account, 0).0;
+            let vault = MultisigV4::derive_vault_pda(&account, 0).0;
             if let Err(err) = client.insert_or_update_squads(
                 &mut conn,
                 &account.to_string(),
@@ -31,7 +31,25 @@ pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> a
                 msig_info.threshold as i32,
                 4
             ) {
-                log::error!("failed to record multisig(v4=true, account={}) {err:#?}", account);
+                log::error!("failed to record multisig(v4=true, account={account}) {err:#?}");
+            }
+        }
+        let v3_msigs = indexer.fetch_multisigs_v3().await?;
+        log::info!("found {} v3 multisig accounts", v3_msigs.len());
+        for (account, msig_info) in v3_msigs.into_iter() {
+            // vault index 0 is reserved for internal usage only
+            let vaults = (1..=msig_info.authority_index).into_iter().map(|idx| {
+                MultisigV3::derive_vault_pda(&account, idx as u32).0.to_string()
+            }).collect::<Vec<_>>();
+            if let Err(err) = client.insert_or_update_squads(
+                &mut conn,
+                &account.to_string(),
+                &vaults,
+                &msig_info.keys.into_iter().map(|key| key.to_string()).collect::<Vec<_>>(),
+                msig_info.threshold as i32,
+                3
+            ) {
+                log::error!("failed to record multisig(v3=true, account={account}) {err:#?}");
             }
         }
     }

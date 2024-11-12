@@ -116,6 +116,22 @@ impl MultisigV4 {
         self.members.sort_by_key(|m| m.key);
     }
 
+
+    pub fn derive_vault_pda(
+        multisig_pda: &Pubkey,
+        index: u8,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[
+                b"multisig",
+                multisig_pda.as_ref(),
+                b"vault",
+                &[index]
+            ],
+            &ID
+        )
+    }
+    
 }
 
 #[derive(AnchorDeserialize, AnchorSerialize, InitSpace, Eq, PartialEq, Clone, Debug)]
@@ -153,29 +169,13 @@ impl Permissions {
         self.mask & (permission as u8) != 0
     }
 }
-
-pub fn derive_vault_pda(
-    multisig_pda: &Pubkey,
-    index: u8,
-) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            b"multisig",
-            multisig_pda.as_ref(),
-            b"vault",
-            &[index]
-        ],
-        &ID
-    )
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
     #[test]
     fn test_derive_vault_pda() {
         let msig: Pubkey = "GwxWYoWqhRpgWDvzUxK4vKMBa8Du2dFAtJFjYnXnUGdv".parse().unwrap();
-        let infos = derive_vault_pda(&msig, 0);
+        let infos = MultisigV4::derive_vault_pda(&msig, 0);
         assert_eq!(infos.0.to_string(), "EnrVSDxuvVd6723zUZ8wS4N8knBDHQM5ceDESD6qSvpT");
     }
 }
