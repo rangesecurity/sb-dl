@@ -99,3 +99,21 @@ pub fn sanitize_for_postgres(value: &mut Value) {
         _ => {}
     }
 }
+
+
+#[cfg(test)]
+mod test {
+    use borsh::BorshDeserialize;
+    use sb_dl::programs::squads::v3::MultisigV3;
+    use solana_client::nonblocking::rpc_client::RpcClient;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_squads() {
+        let rpc = RpcClient::new("https://range.rpcpool.com/39af731a-352c-415f-b4d5-d6ea8b2355ea".to_string());
+        let account_data = rpc.get_account_data(&"DazbcrVYizBrecec7vHJnSrhinc6y3nMWtkPj76hudui".parse().unwrap()).await.unwrap();
+        let msig = MultisigV3::deserialize(&mut &account_data[..]).unwrap();
+        panic!("{:?}", &account_data[0..8]);
+    }
+}
