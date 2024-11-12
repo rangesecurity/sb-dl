@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use client::{BlockFilter, Client};
+use client::{BlockFilter, Client, SquadsFilter};
 use models::{BlockTableChoice, NewBlock, NewBlock2, NewBlockTrait};
 
 use crate::{migrations::run_migrations, test_utils::TestDb};
@@ -394,6 +394,91 @@ fn test_update_slot() {
     }
     let block = &client.select_block(&mut db_conn, BlockFilter::FirstBlock, BlockTableChoice::Blocks2).unwrap()[0];
     assert_eq!(block.number, 100);
+
+    drop(test_db);
+}
+
+#[test]
+fn test_squads() {
+    {
+        let test_db = TestDb::new();
+        test_db.delete_all_tables();
+        drop(test_db);
+    }
+    let test_db = TestDb::new();
+    let mut conn = test_db.conn();
+    run_migrations(&mut conn);
+
+    let client = Client{};
+
+    client.insert_or_update_squads(
+        &mut conn,
+        "acct_1",
+        &["vault_1".to_string()],
+        &["member1".to_string()],
+        1,
+        4
+    ).unwrap();
+
+    let msig = client.select_squads(&mut conn, SquadsFilter::Account("acct_1")).unwrap();
+    assert_eq!(msig.len(), 1);
+    assert_eq!(msig[0].account, "acct_1".to_string());
+    assert_eq!(msig[0].vaults, vec![Some("vault_1".to_string())]);
+    assert_eq!(msig[0].members, vec![Some("member1".to_string())]);
+    assert_eq!(msig[0].threshold, 1);
+    assert_eq!(msig[0].program_version, 4);
+
+    // test updates
+    client.insert_or_update_squads(
+        &mut conn,
+        "acct_1",
+        &["vault_1".to_string(), "vault_2".to_string()],
+        &["member1".to_string()],
+        1,
+        3 // ensure the version can't be updated once its set
+    ).unwrap();
+
+    let msig = client.select_squads(&mut conn, SquadsFilter::Account("acct_1")).unwrap();
+    assert_eq!(msig.len(), 1);
+    assert_eq!(msig[0].account, "acct_1".to_string());
+    assert_eq!(msig[0].vaults, vec![Some("vault_1".to_string()), Some("vault_2".to_string())]);
+    assert_eq!(msig[0].members, vec![Some("member1".to_string())]);
+    assert_eq!(msig[0].threshold, 1);
+    assert_eq!(msig[0].program_version, 4);
+
+    client.insert_or_update_squads(
+        &mut conn,
+        "acct_1",
+        &["vault_1".to_string(), "vault_2".to_string()],
+        &["member1".to_string(), "member2".to_string()],
+        1,
+        4
+    ).unwrap();
+
+    let msig = client.select_squads(&mut conn, SquadsFilter::Account("acct_1")).unwrap();
+    assert_eq!(msig.len(), 1);
+    assert_eq!(msig[0].account, "acct_1".to_string());
+    assert_eq!(msig[0].vaults, vec![Some("vault_1".to_string()), Some("vault_2".to_string())]);
+    assert_eq!(msig[0].members, vec![Some("member1".to_string()), Some("member2".to_string())]);
+    assert_eq!(msig[0].threshold, 1);
+    assert_eq!(msig[0].program_version, 4);
+
+    client.insert_or_update_squads(
+        &mut conn,
+        "acct_1",
+        &["vault_1".to_string(), "vault_2".to_string(), "vault_3".to_string()],
+        &["member1".to_string(), "member2".to_string(), "member3".to_string()],
+        2,
+        4
+    ).unwrap();
+
+    let msig = client.select_squads(&mut conn, SquadsFilter::Account("acct_1")).unwrap();
+    assert_eq!(msig.len(), 1);
+    assert_eq!(msig[0].account, "acct_1".to_string());
+    assert_eq!(msig[0].vaults, vec![Some("vault_1".to_string()), Some("vault_2".to_string()), Some("vault_3".to_string())]);
+    assert_eq!(msig[0].members, vec![Some("member1".to_string()), Some("member2".to_string()), Some("member3".to_string())]);
+    assert_eq!(msig[0].threshold, 2);
+    assert_eq!(msig[0].program_version, 4);
 
     drop(test_db);
 }

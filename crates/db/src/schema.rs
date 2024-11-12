@@ -52,7 +52,7 @@ diesel::table! {
         account -> Varchar,
         vaults -> Array<Nullable<Text>>,
         members -> Array<Nullable<Text>>,
-        treshold -> Int4,
+        threshold -> Int4,
         program_version -> Int4,
     }
 }
