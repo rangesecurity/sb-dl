@@ -1,0 +1,14 @@
+[Unit]
+Description=squads multisig indexer
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ app_root }}/sb_dl --log-file {{ app_root }}/logs/squads_indexer.log --config {{ app_root }}/config.yaml services squads-indexer --frequency 300
+
+# Restart every >2 seconds to avoid StartLimitInterval failure
+RestartSec=30
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -53,6 +53,12 @@
         dest: "/etc/systemd/system/gap_fill.service"
         mode: 0755
 
+    - name: Ship squads indexer service to server
+      template:
+        src: "squads_indexer.service.j2"
+        dest: "/etc/systemd/system/squads_indexer.service"
+        mode: 0755
+
     - name: Configuring geyser stream service
       service:
         name: geyser_stream
@@ -84,6 +90,13 @@
     - name: Configuring gap fill service
       service:
         name: gap_fill
+        state: restarted
+        enabled: true
+        daemon_reload: true
+
+    - name: Configuring squads indexer service
+      service:
+        name: squads_indexer
         state: restarted
         enabled: true
         daemon_reload: true
