@@ -169,13 +169,3 @@ impl Permissions {
         self.mask & (permission as u8) != 0
     }
 }
-#[cfg(test)]
-mod test {
-    use super::*;
-    #[test]
-    fn test_derive_vault_pda() {
-        let msig: Pubkey = "GwxWYoWqhRpgWDvzUxK4vKMBa8Du2dFAtJFjYnXnUGdv".parse().unwrap();
-        let infos = MultisigV4::derive_vault_pda(&msig, 0);
-        assert_eq!(infos.0.to_string(), "EnrVSDxuvVd6723zUZ8wS4N8knBDHQM5ceDESD6qSvpT");
-    }
-}

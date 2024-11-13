@@ -29,3 +29,19 @@ pub struct MultisigV3 {
     pub keys: Vec<Pubkey>,              // keys of the members/owners of the multisig.
 }
 
+impl MultisigV3 {
+    pub fn derive_vault_pda(
+        multisig_pda: &Pubkey,
+        authority_index: u32,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[
+                b"squad",
+                multisig_pda.as_ref(),
+                &authority_index.to_le_bytes()[..],
+                b"authority",
+            ],
+            &ID
+        )
+    }
+}
