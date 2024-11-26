@@ -54,6 +54,7 @@ diesel::table! {
         members -> Array<Nullable<Text>>,
         threshold -> Int4,
         program_version -> Int4,
+        voting_members_count -> Int4,
     }
 }
 

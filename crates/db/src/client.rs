@@ -435,6 +435,7 @@ impl Client {
         acct: &str,
         vault: &[String],
         member: &[String],
+        num_voters: i32,
         thres: i32,
         version: i32,
     ) -> anyhow::Result<()> {
@@ -445,6 +446,7 @@ impl Client {
             members: member.to_vec(),
             threshold: thres,
             program_version: version,
+            voting_members_count: num_voters,
         }
         .insert_into(squads)
         .on_conflict(account)
@@ -452,7 +454,8 @@ impl Client {
         .set((
             vaults.eq(vault),
             members.eq(member),
-            threshold.eq(thres)
+            threshold.eq(thres),
+            voting_members_count.eq(num_voters)
         ))
         .execute(conn)?;
         Ok(())

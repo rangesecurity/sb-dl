@@ -1,0 +1,1 @@
+ALTER TABLE squads ADD COLUMN voting_members_count INT NOT NULL DEFAULT 0;

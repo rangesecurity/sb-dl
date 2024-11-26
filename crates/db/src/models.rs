@@ -76,6 +76,7 @@ pub struct Squads {
     pub members: Vec<Option<String>>,
     pub threshold: i32,
     pub program_version: i32,
+    pub voting_members_count: i32,
 }
 
 #[derive(Insertable)]
@@ -112,6 +113,7 @@ pub struct NewSquads<'a> {
     pub members: Vec<String>,
     pub threshold: i32,
     pub program_version: i32,
+    pub voting_members_count: i32,
 }
 
 pub trait NewBlockTrait {
