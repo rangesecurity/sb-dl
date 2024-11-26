@@ -417,6 +417,7 @@ fn test_squads() {
         &["vault_1".to_string()],
         &["member1".to_string()],
         1,
+        1,
         4
     ).unwrap();
 
@@ -427,6 +428,7 @@ fn test_squads() {
     assert_eq!(msig[0].members, vec![Some("member1".to_string())]);
     assert_eq!(msig[0].threshold, 1);
     assert_eq!(msig[0].program_version, 4);
+    assert_eq!(msig[0].voting_members_count, 1);
 
     // test updates
     client.insert_or_update_squads(
@@ -434,6 +436,7 @@ fn test_squads() {
         "acct_1",
         &["vault_1".to_string(), "vault_2".to_string()],
         &["member1".to_string()],
+        1,
         1,
         3 // ensure the version can't be updated once its set
     ).unwrap();
@@ -445,12 +448,14 @@ fn test_squads() {
     assert_eq!(msig[0].members, vec![Some("member1".to_string())]);
     assert_eq!(msig[0].threshold, 1);
     assert_eq!(msig[0].program_version, 4);
+    assert_eq!(msig[0].voting_members_count, 1);
 
     client.insert_or_update_squads(
         &mut conn,
         "acct_1",
         &["vault_1".to_string(), "vault_2".to_string()],
         &["member1".to_string(), "member2".to_string()],
+        2,
         1,
         4
     ).unwrap();
@@ -462,12 +467,14 @@ fn test_squads() {
     assert_eq!(msig[0].members, vec![Some("member1".to_string()), Some("member2".to_string())]);
     assert_eq!(msig[0].threshold, 1);
     assert_eq!(msig[0].program_version, 4);
+    assert_eq!(msig[0].voting_members_count, 2);
 
     client.insert_or_update_squads(
         &mut conn,
         "acct_1",
         &["vault_1".to_string(), "vault_2".to_string(), "vault_3".to_string()],
         &["member1".to_string(), "member2".to_string(), "member3".to_string()],
+        3,
         2,
         4
     ).unwrap();
@@ -478,6 +485,7 @@ fn test_squads() {
     assert_eq!(msig[0].vaults, vec![Some("vault_1".to_string()), Some("vault_2".to_string()), Some("vault_3".to_string())]);
     assert_eq!(msig[0].members, vec![Some("member1".to_string()), Some("member2".to_string()), Some("member3".to_string())]);
     assert_eq!(msig[0].threshold, 2);
+    assert_eq!(msig[0].voting_members_count, 3);
     assert_eq!(msig[0].program_version, 4);
 
     drop(test_db);
