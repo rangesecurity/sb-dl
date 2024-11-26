@@ -98,5 +98,5 @@
       service:
         name: squads_indexer
         state: restarted
-        enabled: true
+        enabled: false
         daemon_reload: true
