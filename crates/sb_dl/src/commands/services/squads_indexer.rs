@@ -2,7 +2,7 @@ use std::{str::FromStr, time::Duration};
 use chrono::prelude::*;
 use db::{client::Client, migrations::run_migrations, new_connection};
 use diesel::Connection;
-use sb_dl::{config::Config, programs::squads::{v3::MultisigV3, v4::MultisigV4}, services::{idl_indexer::IdlIndexer, squads_indexer::SquadsIndexer}};
+use sb_dl::{config::Config, programs::squads::{v3::MultisigV3, v4::{MultisigV4, Permission as PermissionV4}}, services::{idl_indexer::IdlIndexer, squads_indexer::SquadsIndexer}};
 use solana_sdk::pubkey::Pubkey;
 
 pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> anyhow::Result<()> {
@@ -30,7 +30,18 @@ pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> a
                     conn,
                     &account.to_string(),
                     &[vault.to_string()],
-                    &msig_info.members.into_iter().map(|member| member.key.to_string()).collect::<Vec<_>>(),
+                    &msig_info.members
+                    .into_iter()
+                    .filter_map(|member| {
+                        if !member.permissions.has(
+                        PermissionV4::Vote
+                        ) {
+                            None
+                        } else {
+                            Some(member.key.to_string())
+                        }
+                    })
+                    .collect::<Vec<_>>(),
                     msig_info.threshold as i32,
                     4
                 ) {
