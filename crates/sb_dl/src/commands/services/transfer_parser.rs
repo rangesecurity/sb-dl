@@ -1,17 +1,17 @@
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::{Blocks}};
 use sb_dl::{config::Config, services::{transfer_flow_api::serve_api, transfer_parser::TransferParser}};
 use tokio::signal::unix::{signal, SignalKind};
 
-use crate::commands::handle_exit;
+use crate::{cli::ServicesCommands, commands::handle_exit};
 
 pub async fn transfer_parser(
-    matches: &clap::ArgMatches,
+    cmd: ServicesCommands,
     config_path: &str,
 ) -> anyhow::Result<()> {
-    let use_remotedb = matches.get_flag("use-remotedb");
-    let start = *matches.get_one::<i64>("start").unwrap();
-    let end = *matches.get_one::<i64>("end").unwrap();
+    let ServicesCommands::TransferParser { start, end, block_table_choice, use_remotedb } = cmd else {
+        return Err(anyhow!("invalid command"));
+    };
     let cfg = Config::load(config_path).await?;
     let tx_parser = TransferParser::new(
         &cfg.elasticsearch.url,

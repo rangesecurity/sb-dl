@@ -10,14 +10,13 @@ use solana_transaction_status::{EncodedTransaction, UiConfirmedBlock, UiTransact
 use tokio::task::JoinSet;
 
 pub async fn find_gap_end(
-    matches: &clap::ArgMatches,
+    starting_number: i64,
     config_path: &str
 ) -> anyhow::Result<()> {    
-    let starting_number = matches.get_one::<i64>("starting-number").unwrap();
     let cfg = Config::load(config_path).await?;
     let mut conn = db::new_connection(&cfg.db_url)?;
     let client = Client{};
-    let gap_end = client.find_gap_end(&mut conn, *starting_number)?;
+    let gap_end = client.find_gap_end(&mut conn, starting_number)?;
     log::info!("found_gap(start={starting_number}, end={gap_end})");
     Ok(())
 }

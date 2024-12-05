@@ -1,7 +1,7 @@
 use {
     super::super::utils::{
         get_failed_blocks, load_failed_blocks, sanitize_for_postgres, sanitize_value,
-    }, crate::commands::handle_exit, anyhow::{anyhow, Context}, clap::ArgMatches, db::{migrations::run_migrations, models::{NewBlock}}, diesel::{
+    }, crate::{cli::ServicesCommands, commands::handle_exit}, anyhow::{anyhow, Context}, chrono::prelude::*, clap::ArgMatches, db::{migrations::run_migrations, models::NewBlock}, diesel::{
         prelude::*,
         r2d2::{ConnectionManager, Pool, PooledConnection},
         PgConnection,
@@ -16,19 +16,15 @@ use {
     }, solana_transaction_status::UiConfirmedBlock, std::{collections::HashSet, sync::Arc}, tokio::{
         signal::unix::{signal, Signal, SignalKind},
         sync::Semaphore,
-    },
-    chrono::prelude::*,
+    }
 };
 
 /// Starts the big table historical block downloader
-pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
-
+pub async fn bigtable_downloader(cmd: ServicesCommands, config_path: &str) -> anyhow::Result<()> {
+    let ServicesCommands::BigtableDownloader { start, limit, no_minimization, failed_blocks_dir, threads } = cmd else {
+        return Err(anyhow!("invalid command"));
+    };
     let cfg = Config::load(config_path).await?;
-    let start = matches.get_one::<u64>("start").cloned();
-    let limit = matches.get_one::<u64>("limit").cloned();
-    let no_minimization = matches.get_flag("no-minimization");
-    let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
-    let threads = *matches.get_one::<usize>("threads").unwrap();
 
     // create failed blocks directory, ignoring error (its already created)
     let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
@@ -70,7 +66,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads).await },
+        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads as usize).await },
     );
 
     let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
@@ -85,7 +81,7 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
                 start,
                 limit,
                 no_minimization,
-                threads,
+                threads as usize,
                 stop_downloader_rx
             )
             .await
@@ -104,15 +100,15 @@ pub async fn bigtable_downloader(matches: &ArgMatches, config_path: &str) -> any
 }
 
 /// Starts the geyser stream block downloader
-pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+pub async fn geyser_stream(cmd: ServicesCommands, config_path: &str) -> anyhow::Result<()> {
+    let ServicesCommands::GeyserStream { no_minimization, failed_blocks_dir, threads } = cmd else {
+        return Err(anyhow!("invalid command"));
+    };
     let cfg = Config::load(config_path).await?;
-    let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
-    let threads = *matches.get_one::<usize>("threads").unwrap();
     
     // create failed blocks directory, ignoring error (its already created)
     let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
 
-    let no_minimization = matches.get_flag("no-minimization");
 
     {
         let mut conn = db::new_connection(&cfg.db_url)?;
@@ -140,7 +136,7 @@ pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::R
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads).await },
+        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads as usize).await },
     );
 
     // optional value containing error message encountered during program execution
@@ -159,15 +155,14 @@ pub async fn geyser_stream(matches: &ArgMatches, config_path: &str) -> anyhow::R
     handle_exit(sig_quit, sig_int, sig_term, finished_rx).await
 }
 
-pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
+pub async fn backfiller(cmd: ServicesCommands, config_path: &str) -> anyhow::Result<()> {
+    let ServicesCommands::Backfiller { no_minimization, failed_blocks_dir, threads } = cmd else {
+        return Err(anyhow!("invalid command"));
+    };
     let cfg = Config::load(config_path).await?;
-    let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
-    let threads = *matches.get_one::<usize>("threads").unwrap();
 
     // create failed blocks directory, ignoring error (its already created)
     let _ = tokio::fs::create_dir(&failed_blocks_dir).await;
-
-    let no_minimization = matches.get_flag("no-minimization");
 
     // receives downloaded blocks, which allows us to persist downloaded data while we download and parse other data
     let (blocks_tx, blocks_rx) = tokio::sync::mpsc::channel::<BlockInfo>(1000);
@@ -186,7 +181,7 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
 
     // start the background persistence task
     tokio::task::spawn(
-        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads).await },
+        async move { block_persistence_loop(pool, failed_blocks_dir, blocks_rx, threads as usize).await },
     );
 
     let backfiller = Backfiller::new(&cfg.rpc_url);
@@ -209,10 +204,15 @@ pub async fn backfiller(matches: &ArgMatches, config_path: &str) -> anyhow::Resu
     handle_exit(sig_quit, sig_int, sig_term, finished_rx).await
 }
 
-pub async fn import_failed_blocks(matches: &ArgMatches, config_path: &str) -> anyhow::Result<()> {
-    let cfg = Config::load(config_path).await?;
-    let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
+pub async fn import_failed_blocks(cmd: ServicesCommands, config_path: &str) -> anyhow::Result<()
+> {
 
+    let ServicesCommands::ImportFailedBlocks { failed_blocks_dir } = cmd else {
+        return Err(anyhow!("invalid command"));
+
+    };
+
+    let cfg = Config::load(config_path).await?;
     let (blocks_tx, mut blocks_rx) = tokio::sync::mpsc::channel::<(u64, serde_json::Value)>(1000);
 
     // if we fail to connect to postgres, we should terminate the thread

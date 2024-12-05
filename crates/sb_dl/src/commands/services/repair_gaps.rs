@@ -4,16 +4,18 @@ use anyhow::{anyhow, Context};
 use db::{client::{BlockFilter, Client}, migrations::run_migrations};
 use sb_dl::{config::Config, services::backfill::Backfiller, types::BlockInfo};
 
+use crate::cli::ServicesCommands;
+
 use super::downloaders::block_persistence_loop;
 
-pub async fn backfill(
-    matches: &clap::ArgMatches,
+pub async fn repair_gaps(
+    cmd: ServicesCommands,
     config_path: &str
 ) -> anyhow::Result<()> {
-    let failed_blocks_dir = matches.get_one::<String>("failed-blocks").unwrap().clone();
-    let starting_number = matches.get_one::<i64>("starting-number").unwrap();
+    let ServicesCommands::RepairGaps { starting_number, failed_blocks_dir, threads } = cmd else {
+        return Err(anyhow!("invalid command"));
+    };
 
-    let threads = *matches.get_one::<usize>("threads").unwrap();
     let cfg = Config::load(config_path).await?;
     let conn_pool = db::new_connection_pool(&cfg.db_url, threads as u32 * 2)?;
 
@@ -31,7 +33,7 @@ pub async fn backfill(
         let conn_pool = conn_pool.clone();
         // start the background persistence task
         tokio::task::spawn(
-            async move { block_persistence_loop(conn_pool, failed_blocks_dir, blocks_rx, threads).await },
+            async move { block_persistence_loop(conn_pool, failed_blocks_dir, blocks_rx, threads as usize).await },
         );
     }
 
@@ -39,10 +41,10 @@ pub async fn backfill(
 
     let backfiller = Backfiller::new(&cfg.rpc_url);
     let client = Client{};
-    let gap_end = client.find_gap_end(&mut conn, *starting_number)?;
+    let gap_end = client.find_gap_end(&mut conn, starting_number)?;
 
     // start trying to repair gaps at the block immediately preceeding the current missing block
-    for missing_block in *starting_number-1..gap_end {
+    for missing_block in starting_number-1..gap_end {
         // get block info for the previous block which isn't missing
         let blocks = client.select_block(&mut conn, BlockFilter::Number(missing_block - 1))?;
         if blocks.is_empty() {
