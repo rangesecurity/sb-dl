@@ -1,10 +1,9 @@
 use anyhow::{anyhow, Context};
+use chrono::prelude::*;
 use diesel::prelude::*;
 use uuid::Uuid;
 
-use crate::models::{
-    BlockTableChoice, Blocks, DbBlocks, DbBlocks2, Idls, NewBlock, NewBlockTrait, NewSquads, Programs, Squads
-};
+use crate::models::{Blocks, Idls, NewBlock, NewSquads, Programs, Squads};
 
 #[derive(Clone, Copy)]
 pub struct Client {}
@@ -29,79 +28,13 @@ pub enum SquadsFilter<'a> {
 
 impl Client {
     /// Returns the slot number of blocks which we have indexed
-    pub fn indexed_blocks(
-        self,
-        conn: &mut PgConnection,
-        block_table_choice: BlockTableChoice,
-    ) -> anyhow::Result<Vec<Option<i64>>> {
-        let numbers: Vec<Option<i64>> = match block_table_choice {
-            BlockTableChoice::Blocks => {
-                use super::schema::blocks::dsl::{self, blocks};
-                blocks
-                    .select(dsl::slot)
-                    .get_results(conn)
-                    .with_context(|| "failed to select block numbers")?
-            }
-            BlockTableChoice::Blocks2 => {
-                use super::schema::blocks_2::dsl::{self, blocks_2};
-                blocks_2
-                    .select(dsl::slot)
-                    .get_results(conn)
-                    .with_context(|| "failed to select block numbers")?
-            }
-        };
-
+    pub fn indexed_blocks(self, conn: &mut PgConnection) -> anyhow::Result<Vec<i64>> {
+        use super::schema::blocks::dsl::{self, blocks};
+        let numbers: Vec<i64> = blocks
+            .select(dsl::slot)
+            .get_results(conn)
+            .with_context(|| "failed to select block numbers")?;
         Ok(numbers)
-    }
-    /// Returns up to `limit` blocks which do not have the slot column set
-    pub fn slot_is_null(
-        self,
-        conn: &mut PgConnection,
-        limit: i64,
-        excluded_blocks: &[i64],
-    ) -> anyhow::Result<Vec<Blocks>> {
-        use crate::schema::blocks::dsl::*;
-        let mut query = blocks.into_boxed().filter(slot.is_null());
-
-        for excluded_block in excluded_blocks {
-            query = query.filter(number.ne(excluded_block));
-        }
-
-        Ok(query
-            .limit(limit)
-            .select(DbBlocks::as_select())
-            .load(conn)
-            .with_context(|| "failed to load blocks")?
-            .into_iter()
-            .map(|block| Blocks {
-                id: block.id,
-                number: block.number,
-                data: block.data,
-                slot: block.slot,
-            })
-            .collect())
-    }
-    /// Returns up to `limit` blocks which have slot and number as the same
-    pub fn slot_equals_blocks(
-        self,
-        conn: &mut PgConnection,
-        limit: i64,
-    ) -> anyhow::Result<Vec<Blocks>> {
-        use crate::schema::blocks::dsl::*;
-        Ok(blocks
-            .filter(number.nullable().eq(slot))
-            .limit(limit)
-            .select(DbBlocks::as_select())
-            .load(conn)
-            .with_context(|| "failed to load blocks")?
-            .into_iter()
-            .map(|block| Blocks {
-                id: block.id,
-                number: block.number,
-                data: block.data,
-                slot: block.slot,
-            })
-            .collect())
     }
     pub fn indexed_program_ids(self, conn: &mut PgConnection) -> anyhow::Result<Vec<String>> {
         use crate::schema::programs::dsl::*;
@@ -116,161 +49,40 @@ impl Client {
         self,
         conn: &mut PgConnection,
         filter: BlockFilter,
-        block_table_choice: BlockTableChoice,
     ) -> anyhow::Result<Vec<Blocks>> {
-        use crate::schema::{blocks, blocks_2};
+        use crate::schema::blocks;
         match filter {
-            BlockFilter::Number(blk_num) => match block_table_choice {
-                BlockTableChoice::Blocks => Ok(blocks::dsl::blocks
-                    .filter(blocks::dsl::number.eq(blk_num))
-                    .select(DbBlocks::as_select())
-                    .load(conn)?
-                    .into_iter()
-                    .map(|block| Blocks {
-                        id: block.id,
-                        number: block.number,
-                        data: block.data,
-                        slot: block.slot,
-                    })
-                    .collect()),
-                BlockTableChoice::Blocks2 => Ok(blocks_2::dsl::blocks_2
-                    .filter(blocks_2::dsl::number.eq(blk_num))
-                    .select(DbBlocks2::as_select())
-                    .load(conn)?
-                    .into_iter()
-                    .map(|block| Blocks {
-                        id: block.id,
-                        number: block.number,
-                        data: block.data,
-                        slot: block.slot,
-                    })
-                    .collect()),
-            },
-            BlockFilter::Slot(slot_num) => match block_table_choice {
-                BlockTableChoice::Blocks => Ok(blocks::dsl::blocks
-                    .filter(blocks::dsl::slot.eq(slot_num))
-                    .select(DbBlocks::as_select())
-                    .load(conn)?
-                    .into_iter()
-                    .map(|block| Blocks {
-                        id: block.id,
-                        number: block.number,
-                        data: block.data,
-                        slot: block.slot,
-                    })
-                    .collect()),
-                BlockTableChoice::Blocks2 => Ok(blocks_2::dsl::blocks_2
-                    .filter(blocks_2::dsl::slot.eq(slot_num))
-                    .select(DbBlocks2::as_select())
-                    .load(conn)?
-                    .into_iter()
-                    .map(|block| Blocks {
-                        id: block.id,
-                        number: block.number,
-                        data: block.data,
-                        slot: block.slot,
-                    })
-                    .collect()),
-            },
-            BlockFilter::FirstBlock => match block_table_choice {
-                BlockTableChoice::Blocks => Ok(blocks::dsl::blocks
-                    .order(blocks::dsl::number.asc())
-                    .limit(1)
-                    .select(DbBlocks::as_select())
-                    .load(conn)?
-                    .into_iter()
-                    .map(|block| Blocks {
-                        id: block.id,
-                        number: block.number,
-                        data: block.data,
-                        slot: block.slot,
-                    })
-                    .collect()),
-                BlockTableChoice::Blocks2 => Ok(blocks_2::dsl::blocks_2
-                    .order(blocks_2::dsl::number.asc())
-                    .limit(1)
-                    .select(DbBlocks2::as_select())
-                    .load(conn)?
-                    .into_iter()
-                    .map(|block| Blocks {
-                        id: block.id,
-                        number: block.number,
-                        data: block.data,
-                        slot: block.slot,
-                    })
-                    .collect()),
-            },
-            BlockFilter::All => match block_table_choice {
-                BlockTableChoice::Blocks => Ok(blocks::dsl::blocks
-                    .select(DbBlocks::as_select())
-                    .load(conn)?
-                    .into_iter()
-                    .map(|block| Blocks {
-                        id: block.id,
-                        number: block.number,
-                        data: block.data,
-                        slot: block.slot,
-                    })
-                    .collect()),
-                BlockTableChoice::Blocks2 => Ok(blocks_2::dsl::blocks_2
-                    .select(DbBlocks2::as_select())
-                    .load(conn)?
-                    .into_iter()
-                    .map(|block| Blocks {
-                        id: block.id,
-                        number: block.number,
-                        data: block.data,
-                        slot: block.slot,
-                    })
-                    .collect()),
-            },
+            BlockFilter::Number(blk_num) => Ok(blocks::dsl::blocks
+                .filter(blocks::dsl::number.eq(blk_num))
+                .select(Blocks::as_select())
+                .get_results(conn)?),
+            BlockFilter::Slot(slot_num) => Ok(blocks::dsl::blocks
+                .filter(blocks::dsl::slot.eq(slot_num))
+                .select(Blocks::as_select())
+                .get_results(conn)?),
+            BlockFilter::FirstBlock => Ok(blocks::dsl::blocks
+                .order(blocks::dsl::number.asc())
+                .limit(1)
+                .select(Blocks::as_select())
+                .get_results(conn)?),
+            BlockFilter::All => Ok(blocks::dsl::blocks
+                .select(Blocks::as_select())
+                .get_results(conn)?),
         }
     }
     pub fn select_squads<'a>(
         self,
         conn: &mut PgConnection,
-        filter: SquadsFilter<'a>
+        filter: SquadsFilter<'a>,
     ) -> anyhow::Result<Vec<Squads>> {
         use crate::schema::squads::dsl::*;
         match filter {
-            SquadsFilter::Account(acct) => Ok(
-                squads
+            SquadsFilter::Account(acct) => Ok(squads
                 .filter(account.eq(acct))
                 .select(Squads::as_select())
-                .load(conn)?
-            ),
-            SquadsFilter::All => Ok(
-                squads
-                .select(Squads::as_select())
-                .load(conn)?
-            )
+                .load(conn)?),
+            SquadsFilter::All => Ok(squads.select(Squads::as_select()).load(conn)?),
         }
-    }
-    /// Used to update blocks which have missing slot information
-    pub fn update_block_slot(
-        self,
-        conn: &mut PgConnection,
-        block_id: Uuid,
-        new_block_number: i64,
-        slot_number: i64,
-        block_table_choice: BlockTableChoice,
-    ) -> anyhow::Result<()> {
-        match block_table_choice {
-            BlockTableChoice::Blocks => {
-                use crate::schema::blocks::dsl::{self, blocks};
-                diesel::update(blocks.filter(dsl::id.eq(block_id)))
-                    .set((dsl::slot.eq(slot_number), dsl::number.eq(new_block_number)))
-                    .execute(conn)?;
-            }
-            BlockTableChoice::Blocks2 => {
-                use crate::schema::blocks_2::dsl::{self, blocks_2};
-                diesel::update(blocks_2.filter(dsl::id.eq(block_id)))
-                    .set((dsl::slot.eq(slot_number), dsl::number.eq(new_block_number)))
-                    .execute(conn)?;
-            }
-        }
-
-        Ok(())
     }
     pub fn insert_or_update_idl(
         self,
@@ -358,86 +170,15 @@ impl Client {
         })?;
         Ok(())
     }
-    pub fn update_slot(
-        self,
-        conn: &mut PgConnection,
-        block_number: i64,
-        slot_number: i64,
-        block_table_choice: BlockTableChoice,
-    ) -> anyhow::Result<()> {
-        conn.transaction::<_, anyhow::Error, _>(|conn| {
-            match block_table_choice {
-                BlockTableChoice::Blocks => {
-                    use crate::schema::blocks;
-                    match blocks::dsl::blocks
-                        .filter(blocks::dsl::number.eq(&block_number))
-                        .select(DbBlocks::as_select())
-                        .limit(1)
-                        .load(conn)
-                    {
-                        Ok(mut block_infos) => {
-                            if block_infos.is_empty() {
-                                return Ok(());
-                            } else {
-                                let mut block = std::mem::take(&mut block_infos[0]);
-                                block.slot = Some(slot_number);
-                                diesel::update(
-                                    blocks::dsl::blocks.filter(blocks::dsl::id.eq(block.id)),
-                                )
-                                .set(block)
-                                .execute(conn)?;
-                            }
-                        }
-                        Err(err) => {
-                            return Err(anyhow!(
-                                "failed to check for block({block_number}) {err:#?}"
-                            ))
-                        }
-                    }
-                }
-                BlockTableChoice::Blocks2 => {
-                    use crate::schema::blocks_2;
-                    match blocks_2::dsl::blocks_2
-                        .filter(blocks_2::dsl::number.eq(&block_number))
-                        .select(DbBlocks2::as_select())
-                        .limit(1)
-                        .load(conn)
-                    {
-                        Ok(mut block_infos) => {
-                            if block_infos.is_empty() {
-                                return Ok(());
-                            } else {
-                                let mut block = std::mem::take(&mut block_infos[0]);
-                                block.slot = Some(slot_number);
-                                diesel::update(
-                                    blocks_2::dsl::blocks_2.filter(blocks_2::dsl::id.eq(block.id)),
-                                )
-                                .set(block)
-                                .execute(conn)?;
-                            }
-                        }
-                        Err(err) => {
-                            return Err(anyhow!(
-                                "failed to check for block({block_number}) {err:#?}"
-                            ))
-                        }
-                    }
-                }
-            }
-
-            Ok(())
-        })?;
-        Ok(())
-    }
     pub fn insert_or_update_squads(
         self,
         conn: &mut PgConnection,
         acct: &str,
         vault: &[String],
         member: &[String],
-        num_voters: i32,
-        thres: i32,
-        version: i32,
+        num_voters: i64,
+        thres: i64,
+        version: i64,
     ) -> anyhow::Result<()> {
         use crate::schema::squads::dsl::*;
         NewSquads {
@@ -455,7 +196,7 @@ impl Client {
             vaults.eq(vault),
             members.eq(member),
             threshold.eq(thres),
-            voting_members_count.eq(num_voters)
+            voting_members_count.eq(num_voters),
         ))
         .execute(conn)?;
         Ok(())
@@ -467,49 +208,26 @@ impl Client {
         self,
         conn: &mut PgConnection,
         starting_number: i64,
-        block_table_choice: BlockTableChoice,
     ) -> anyhow::Result<i64> {
-        use crate::schema::{blocks, blocks_2};
+        use crate::schema::blocks;
         let end_number;
         let mut next_number = starting_number + 1;
         loop {
-            match block_table_choice {
-                BlockTableChoice::Blocks => {
-                    match blocks::dsl::blocks
-                        .filter(blocks::dsl::number.eq(&next_number))
-                        .select(DbBlocks::as_select())
-                        .limit(1)
-                        .load(conn)
-                    {
-                        Ok(block_infos) => {
-                            if !block_infos.is_empty() {
-                                end_number = next_number - 1;
-                                break;
-                            }
-                        }
-                        Err(err) => {
-                            return Err(anyhow!(
-                                "failed to check for block({next_number}) {err:#?}"
-                            ))
-                        }
+            match blocks::dsl::blocks
+                .filter(blocks::dsl::number.eq(&next_number))
+                .select(Blocks::as_select())
+                .limit(1)
+                .load(conn)
+            {
+                Ok(block_infos) => {
+                    if !block_infos.is_empty() {
+                        end_number = next_number - 1;
+                        break;
                     }
                 }
-                BlockTableChoice::Blocks2 => match blocks_2::dsl::blocks_2
-                    .filter(blocks_2::dsl::number.eq(&next_number))
-                    .select(DbBlocks2::as_select())
-                    .limit(1)
-                    .load(conn)
-                {
-                    Ok(block_infos) => {
-                        if !block_infos.is_empty() {
-                            end_number = next_number - 1;
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        return Err(anyhow!("failed to check for block({next_number}) {err:#?}"))
-                    }
-                },
+                Err(err) => {
+                    return Err(anyhow!("failed to check for block({next_number}) {err:#?}"))
+                }
             }
 
             next_number += 1;
@@ -521,27 +239,23 @@ impl Client {
     pub fn insert_block(
         &self,
         conn: &mut PgConnection,
-        new_block: impl NewBlockTrait,
+        n: i64,
+        s: i64,
+        t: Option<DateTime<Utc>>,
+        d: &serde_json::Value,
     ) -> anyhow::Result<()> {
-        let nb = NewBlock {
-            number: new_block.number(),
-            data: new_block.data(),
-            slot: new_block.slot(),
-        };
-        match new_block.table_choice() {
-            BlockTableChoice::Blocks => {
-                nb.insert_into(crate::schema::blocks::table)
-                    .on_conflict_do_nothing()
-                    .execute(conn)
-                    .with_context(|| "failed to insert into blocks")?;
-            }
-            BlockTableChoice::Blocks2 => {
-                nb.insert_into(crate::schema::blocks_2::table)
-                    .on_conflict_do_nothing()
-                    .execute(conn)
-                    .with_context(|| "failed to insert into blocks")?;
-            }
+        use crate::schema::blocks::dsl::*;
+        NewBlock {
+            number: n,
+            slot: s,
+            time: t,
+            processed: false,
+            data: d,
         }
+        .insert_into(blocks)
+        .on_conflict_do_nothing()
+        .execute(conn)?;
+
         Ok(())
     }
 }

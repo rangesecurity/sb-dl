@@ -52,8 +52,8 @@ pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> a
                                 Some(member.key.to_string())
                             }
                         })
-                        .count() as i32,
-                    msig_info.threshold as i32,
+                        .count() as i64,
+                    msig_info.threshold as i64,
                     4,
                 ) {
                     log::error!("failed to record multisig(v4=true, account={account}) {err:#?}");
@@ -91,8 +91,8 @@ pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> a
                         .iter()
                         .map(|key| key.to_string())
                         .collect::<Vec<_>>(),
-                    msig_info.keys.len() as i32,
-                    msig_info.threshold as i32,
+                    msig_info.keys.len() as i64,
+                    msig_info.threshold as i64,
                     3,
                 ) {
                     log::error!("failed to record multisig(v3=true, account={account}) {err:#?}");

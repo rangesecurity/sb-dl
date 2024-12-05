@@ -1,5 +1,5 @@
 use anyhow::Context;
-use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::{BlockTableChoice, Blocks}};
+use db::{client::{BlockFilter, Client}, migrations::run_migrations, models::{Blocks}};
 use sb_dl::{config::Config, services::{transfer_flow_api::serve_api, transfer_parser::TransferParser}};
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -9,7 +9,6 @@ pub async fn transfer_parser(
     matches: &clap::ArgMatches,
     config_path: &str,
 ) -> anyhow::Result<()> {
-    let blocks_table = BlockTableChoice::try_from(*matches.get_one::<u8>("block-table-choice").unwrap()).unwrap();
     let use_remotedb = matches.get_flag("use-remotedb");
     let start = *matches.get_one::<i64>("start").unwrap();
     let end = *matches.get_one::<i64>("end").unwrap();
@@ -32,7 +31,6 @@ pub async fn transfer_parser(
         match client.select_block(
             &mut conn,
             BlockFilter::Number(block),
-            blocks_table
         ) {
             Ok(mut blocks) => if blocks.is_empty() {
                 log::warn!("failed to find block({block})");

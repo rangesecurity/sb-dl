@@ -209,9 +209,6 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
         Some(("manual-idl-import", mii)) => {
             commands::services::idl_indexer::manual_idl_import(mii, config_path).await
         }
-        Some(("fill-missing-slots", fms)) => {
-            commands::db::fill_missing_slots(fms, config_path).await
-        }
         Some(("create-transfer-graph", ctg)) => {
             commands::transfer_graph::create_transfer_graph_for_tx(ctg, config_path).await
         }
@@ -219,9 +216,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             commands::transfer_graph::create_ordered_transfers_for_entire_block(cotfb, config_path)
                 .await
         }
-        Some(("repair-invalid-slots", ris)) => commands::db::repair_invalid_slots(ris, config_path).await,
         Some(("find-gap-end", fge)) => commands::db::find_gap_end(fge, config_path).await,
-        Some(("fill-missing-slots-no-tx", fmsnt)) => commands::db::fill_missing_slots_no_tx(fmsnt, config_path).await,
         Some(("services", s)) => match s.subcommand() {
             Some(("bigtable-downloader", bd)) => {
                 commands::services::downloaders::bigtable_downloader(bd, config_path).await

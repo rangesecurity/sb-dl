@@ -12,6 +12,7 @@ use {
             SubscribeRequestFilterBlocks, SubscribeRequestPing,
         },
     },
+    chrono::prelude::*,
 };
 
 pub async fn new_geyser_client(
@@ -86,10 +87,16 @@ pub async fn subscribe_blocks(
                         Ok(block) => match process_block(block, no_minimization) {
                             Ok(block) => {
                                 if let Some(block_height) = block.block_height {
+                                    let time = if let Some(block_time) = block.block_time {
+                                        DateTime::from_timestamp(block_time, 0)
+                                    } else {
+                                        None
+                                    };
                                     if let Err(err) = blocks_tx
                                         .send(BlockInfo {
-                                            slot: Some(slot),
+                                            slot,
                                             block,
+                                            time,
                                             block_height,
                                         })
                                         .await
