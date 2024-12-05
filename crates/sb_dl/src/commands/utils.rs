@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use anyhow::Context;
 use serde_json::Value;
 
 // sanitizes utf8 encoding issues which prevent converting serde_json::Value to a string
@@ -60,18 +61,25 @@ pub async fn load_failed_blocks(
     use regex::Regex;
 
     let re = Regex::new(r"block_(\d+)\.json").unwrap();
-    let entries = tokio::fs::read_dir(dir).await?;
+    let entries = tokio::fs::read_dir(dir).await.with_context(|| "failed to read dir")?;
     tokio::pin!(entries);
 
-    while let Some(entry) = entries.next_entry().await? {
+    while let Some(entry) = entries.next_entry().await.with_context(|| "failed to get next entry")? {
         if let Some(file_name) = entry.file_name().to_str() {
             if let Some(captures) = re.captures(file_name) {
                 if let Some(matched) = captures.get(1) {
                     if let Ok(slot) = matched.as_str().parse::<u64>() {
-                        let block = tokio::fs::read_to_string(entry.path()).await?;
-                        let block: serde_json::Value = serde_json::from_str(&block)?;
-                        if let Err(err) = blocks_tx.send((slot, block)).await {
-                            log::error!("failed to notify block({slot}) {err:#?}");
+                        let block = tokio::fs::read_to_string(entry.path()).await.with_context(|| "failed to read block")?;
+                        match serde_json::from_str(&block).with_context(|| "failed to deserialize block") {
+                            Ok(block) => {
+                                if let Err(err) = blocks_tx.send((slot, block)).await {
+                                    log::error!("failed to notify block({slot}) {err:#?}");
+                                }
+                            }
+                            Err(err) => {
+                                log::error!("failed to deserialize block {:?} {err:#?}", entry.path());
+                                continue;
+                            }
                         }
                     }
                 }
@@ -97,5 +105,23 @@ pub fn sanitize_for_postgres(value: &mut Value) {
             }
         }
         _ => {}
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use borsh::BorshDeserialize;
+    use sb_dl::programs::squads::v3::MultisigV3;
+    use solana_client::nonblocking::rpc_client::RpcClient;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_squads() {
+        let rpc = RpcClient::new("https://range.rpcpool.com/39af731a-352c-415f-b4d5-d6ea8b2355ea".to_string());
+        let account_data = rpc.get_account_data(&"DazbcrVYizBrecec7vHJnSrhinc6y3nMWtkPj76hudui".parse().unwrap()).await.unwrap();
+        let msig = MultisigV3::deserialize(&mut &account_data[..]).unwrap();
+        panic!("{:?}", &account_data[0..8]);
     }
 }

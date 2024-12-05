@@ -103,6 +103,15 @@ async fn main() -> Result<()> {
                         .action(clap::ArgAction::SetTrue)
                         .default_value("false")
                         .required(false)                        
+                    ),
+                    Command::new("squads-indexer")
+                    .about("index squads multisigs")
+                    .arg(
+                        Arg::new("frequency")
+                        .long("frequency")
+                        .help("duration in seconds to fetch data")
+                        .value_parser(clap::value_parser!(u64))
+                        .default_value("300")
                     )
                 ]),
             Command::new("import-failed-blocks").arg(failed_blocks_flag())
@@ -234,6 +243,7 @@ async fn process_matches(matches: &ArgMatches, config_path: &str) -> anyhow::Res
             }
             Some(("repair-gaps", rg)) => commands::services::backfill::backfill(rg, config_path).await,
             Some(("transfer-parser", tp)) => commands::services::transfer_parser::transfer_parser(tp, config_path).await,
+            Some(("squads-indexer", si)) => commands::services::squads_indexer::index_multisigs(si, config_path).await,
             _ => Err(anyhow!("invalid subcommand")),
         },
         _ => Err(anyhow!("invalid subcommand")),

@@ -3,7 +3,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::models::{
-    BlockTableChoice, Blocks, DbBlocks, DbBlocks2, Idls, NewBlock, NewBlockTrait, Programs,
+    BlockTableChoice, Blocks, DbBlocks, DbBlocks2, Idls, NewBlock, NewBlockTrait, NewSquads, Programs, Squads
 };
 
 #[derive(Clone, Copy)]
@@ -18,6 +18,12 @@ pub enum BlockFilter {
     /// returns the oldest block we have based on block number
     FirstBlock,
     /// return all blocks
+    All,
+}
+
+#[derive(Clone)]
+pub enum SquadsFilter<'a> {
+    Account(&'a str),
     All,
 }
 
@@ -220,6 +226,26 @@ impl Client {
             },
         }
     }
+    pub fn select_squads<'a>(
+        self,
+        conn: &mut PgConnection,
+        filter: SquadsFilter<'a>
+    ) -> anyhow::Result<Vec<Squads>> {
+        use crate::schema::squads::dsl::*;
+        match filter {
+            SquadsFilter::Account(acct) => Ok(
+                squads
+                .filter(account.eq(acct))
+                .select(Squads::as_select())
+                .load(conn)?
+            ),
+            SquadsFilter::All => Ok(
+                squads
+                .select(Squads::as_select())
+                .load(conn)?
+            )
+        }
+    }
     /// Used to update blocks which have missing slot information
     pub fn update_block_slot(
         self,
@@ -401,6 +427,37 @@ impl Client {
 
             Ok(())
         })?;
+        Ok(())
+    }
+    pub fn insert_or_update_squads(
+        self,
+        conn: &mut PgConnection,
+        acct: &str,
+        vault: &[String],
+        member: &[String],
+        num_voters: i32,
+        thres: i32,
+        version: i32,
+    ) -> anyhow::Result<()> {
+        use crate::schema::squads::dsl::*;
+        NewSquads {
+            account: acct,
+            vaults: vault.to_vec(),
+            members: member.to_vec(),
+            threshold: thres,
+            program_version: version,
+            voting_members_count: num_voters,
+        }
+        .insert_into(squads)
+        .on_conflict(account)
+        .do_update()
+        .set((
+            vaults.eq(vault),
+            members.eq(member),
+            threshold.eq(thres),
+            voting_members_count.eq(num_voters)
+        ))
+        .execute(conn)?;
         Ok(())
     }
     /// Given a starting block height, determine the next block for which we have data available.

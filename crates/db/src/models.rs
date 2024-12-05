@@ -67,6 +67,18 @@ pub struct Programs {
     pub executable_data: Vec<u8>,
 }
 
+#[derive(Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable, Default, Insertable)]
+#[diesel(table_name = super::schema::squads)]
+pub struct Squads {
+    pub id: Uuid,
+    pub account: String,
+    pub vaults: Vec<Option<String>>,
+    pub members: Vec<Option<String>>,
+    pub threshold: i32,
+    pub program_version: i32,
+    pub voting_members_count: i32,
+}
+
 #[derive(Insertable)]
 #[diesel(table_name = super::schema::blocks)]
 #[diesel(table_name = super::schema::blocks_2)]
@@ -91,6 +103,17 @@ pub struct NewBlock2 {
     pub number: i64,
     pub data: serde_json::Value,
     pub slot: Option<i64>,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = super::schema::squads)]
+pub struct NewSquads<'a> {
+    pub account: &'a str,
+    pub vaults: Vec<String>,
+    pub members: Vec<String>,
+    pub threshold: i32,
+    pub program_version: i32,
+    pub voting_members_count: i32,
 }
 
 pub trait NewBlockTrait {

@@ -44,9 +44,24 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::sql_types::*;
+
+    squads (id) {
+        id -> Uuid,
+        account -> Varchar,
+        vaults -> Array<Nullable<Text>>,
+        members -> Array<Nullable<Text>>,
+        threshold -> Int4,
+        program_version -> Int4,
+        voting_members_count -> Int4,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     blocks,
     blocks_2,
     idls,
     programs,
+    squads,
 );
