@@ -22,7 +22,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE blocks (
     number BIGINT NOT NULL PRIMARY KEY,
-    slot BIGINT NOT NULL,
+    slot BIGINT NOT NULL UNIQUE,
     time TIMESTAMPTZ,
     processed BOOLEAN NOT NULL DEFAULT false,
     data JSONB NOT NULL
