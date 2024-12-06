@@ -40,19 +40,19 @@ version = "1"
 [dependencies.smpl_jwt]
 version = "0.7"
 [dependencies.solana-metrics]
-version = "1.18"
+version = "2.0.18"
 [dependencies.solana-sdk]
-version = "1.18"
+version = "2.0.18"
 [dependencies.solana-storage-proto]
-version = "1.18"
+version = "2.0.18"
 [dependencies.solana-transaction-status]
-version = "1.18"
+version = "2.0.18"
 [dependencies.thiserror]
 version = "1"
 [dependencies.tokio]
 version = "1"
 [dependencies.tonic]
-version = "0.9"
+version = "0.12.1"
 features = ["tls", "transport"]
 [dependencies.zstd]
 version = "0.11"

@@ -87,6 +87,7 @@ pub async fn subscribe_blocks(
                         Ok(block) => match process_block(block, no_minimization) {
                             Ok(block) => {
                                 if let Some(block_height) = block.block_height {
+                                    log::info!("got_block(slot={}, height={})", slot, block_height);
                                     let time = if let Some(block_time) = block.block_time {
                                         DateTime::from_timestamp(block_time, 0)
                                     } else {

@@ -8,7 +8,7 @@ pub const DISCRIMINATOR: [u8; 8] = [224, 116, 121, 186, 68, 161, 79, 236];
 pub const MAX_TIME_LOCK: u32 = 3 * 30 * 24 * 60 * 60; // 3 months
 
 
-#[derive(AnchorSerialize, AnchorDeserialize, Debug)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug)]
 pub struct MultisigV4 {
     __discriminator: [u8; 8],
     /// Key that is used to seed the multisig PDA.
@@ -42,20 +42,6 @@ pub struct MultisigV4 {
 }
 
 impl MultisigV4 {
-    pub fn size(members_length: usize) -> usize {
-        8  + // anchor account discriminator
-        32 + // create_key
-        32 + // config_authority
-        2  + // threshold
-        4  + // time_lock
-        8  + // transaction_index
-        8  + // stale_transaction_index
-        1  + // rent_collector Option discriminator
-        32 + // rent_collector (always 32 bytes, even if None, just to keep the realloc logic simpler)
-        1  + // bump
-        4  + // members vector length
-        members_length * Member::INIT_SPACE // members
-    }
 
     pub fn num_voters(members: &[Member]) -> usize {
         members
@@ -134,7 +120,7 @@ impl MultisigV4 {
     
 }
 
-#[derive(AnchorDeserialize, AnchorSerialize, InitSpace, Eq, PartialEq, Clone, Debug)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Eq, PartialEq, Clone, Debug)]
 pub struct Member {
     pub key: Pubkey,
     pub permissions: Permissions,
@@ -149,7 +135,7 @@ pub enum Permission {
 
 /// Bitmask for permissions.
 #[derive(
-    AnchorSerialize, AnchorDeserialize, InitSpace, Eq, PartialEq, Clone, Copy, Default, Debug,
+    borsh::BorshSerialize, borsh::BorshDeserialize, Eq, PartialEq, Clone, Copy, Default, Debug,
 )]
 pub struct Permissions {
     pub mask: u8,

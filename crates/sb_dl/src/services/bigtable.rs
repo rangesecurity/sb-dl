@@ -80,7 +80,7 @@ impl Downloader {
         let slots_to_fetch = (start..start + limit)
             .into_iter()
             .filter(|slot| !already_indexed.contains(slot))
-            .collect::<Vec<solana_program::clock::Slot>>();
+            .collect::<Vec<solana_sdk::clock::Slot>>();
         
         log::info!("starting downloader");
 

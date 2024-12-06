@@ -7,18 +7,16 @@ edition = "2021"
 [[bin]]
 name = "sb_dl"
 path = "src/main.rs"
-[dependencies.anchor-lang]
-version = "0.30"
 [dependencies.solana-client]
-version = "1.18"
+version = "2.1.4"
 [dependencies.solana-sdk]
-version = "1.18"
+version = "2.1.4"
 [dependencies.solana-account-decoder]
-version = "1.18"
+version = "2.1.4"
 [dependencies.solana-program]
-version = "1.18"
+version = "2.1.4"
 [dependencies.solana-transaction-status]
-version = "1.18"
+version = "2.1.4"
 [dependencies.anyhow]
 version = "1"
 [dependencies.log] 
@@ -52,15 +50,15 @@ features = ["log", "attributes"]
 [dependencies.serde_json]
 version = "1"
 [dependencies.solana-storage-proto]
-version = "1.18"
+version = "2.1.4"
 [dependencies.regex]
 version = "1"
 [dependencies.yellowstone-grpc-proto]
 git = "https://github.com/rpcpool/yellowstone-grpc"
-rev = "87e1755b0d7a4e8101cb5feb6f30063aa91f343f"
+rev = "fe870322fafc1a4cd3617d193ef09a4a3bf65c55"
 [dependencies.yellowstone-grpc-client]
 git = "https://github.com/rpcpool/yellowstone-grpc"
-rev = "87e1755b0d7a4e8101cb5feb6f30063aa91f343f"
+rev = "fe870322fafc1a4cd3617d193ef09a4a3bf65c55"
 [dependencies.futures]
 version = "0.3"
 [dependencies.bincode]
@@ -85,4 +83,4 @@ version = "8.15.0-alpha.1"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]
-path = "../storage-bigtable"
+version = "2.1.4"

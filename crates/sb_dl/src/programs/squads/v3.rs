@@ -1,11 +1,11 @@
 use {
-    anchor_lang::{AnchorDeserialize, AnchorSerialize}, solana_sdk::pubkey::Pubkey
+    solana_sdk::pubkey::Pubkey
 };
 
 pub const ID: Pubkey = solana_sdk::pubkey!("SMPLecH534NA9acpos4G6x7uf3LWbCAwZQE9e8ZekMu");
 pub const DISCRIMINATOR: [u8; 8] = [70, 118, 9, 108, 254, 215, 31, 120];
 
-#[derive(AnchorSerialize, AnchorDeserialize, Debug)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug)]
 pub struct MultisigV3 {
     __discriminator: [u8; 8],
     pub threshold: u16,                 // threshold for signatures to execute.
