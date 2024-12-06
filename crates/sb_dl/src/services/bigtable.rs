@@ -6,6 +6,7 @@ use {
         bigtable::{deserialize_protobuf_or_bincode_cell_data, CellData},
         key_to_slot, slot_to_blocks_key, StoredConfirmedBlock,
     }, solana_storage_proto::convert::generated, solana_transaction_status::{ConfirmedBlock, UiConfirmedBlock}, std::{collections::HashSet, sync::{atomic::{AtomicBool, Ordering}, Arc}}, tokio::task::JoinSet,
+    chrono::prelude::*,
 };
 
 #[derive(Clone)]
@@ -79,7 +80,7 @@ impl Downloader {
         let slots_to_fetch = (start..start + limit)
             .into_iter()
             .filter(|slot| !already_indexed.contains(slot))
-            .collect::<Vec<solana_program::clock::Slot>>();
+            .collect::<Vec<solana_sdk::clock::Slot>>();
         
         log::info!("starting downloader");
 
@@ -95,20 +96,26 @@ impl Downloader {
                     match Self::get_confirmed_block(client, max_decoding_size, slot).await {
                         Ok(block) => {
                             if let Some(block) = block {
-                                let block_height = if let Some(block_height) = block.block_height {
-                                    block_height
-                                } else {
-                                    log::warn!("block({slot}) height is none");
-                                    return;
-                                };
                                 // post process the block to handle encoding and space minimization
                                 match process_block(block, no_minimization) {
                                     Ok(block) => {
+                                        let block_height = if let Some(block_height) = block.block_height {
+                                            block_height
+                                        } else {
+                                            log::warn!("block({slot}) height is none");
+                                            return;
+                                        };
+                                        let time = if let Some(block_time) = block.block_time {
+                                            DateTime::from_timestamp(block_time, 0)
+                                        } else {
+                                            None
+                                        };
                                         if let Err(err) = blocks_tx
                                             .send(BlockInfo {
                                                 block_height,
-                                                slot: Some(slot),
+                                                slot,
                                                 block,
+                                                time,
                                             })
                                             .await
                                         {

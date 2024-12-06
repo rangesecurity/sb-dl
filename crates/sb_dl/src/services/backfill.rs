@@ -5,6 +5,7 @@ use {
     solana_sdk::commitment_config::CommitmentConfig,
     solana_transaction_status::{TransactionDetails, UiConfirmedBlock, UiTransactionEncoding},
     std::time::Duration,
+    chrono::prelude::*,
 };
 
 pub struct Backfiller {
@@ -58,11 +59,17 @@ impl Backfiller {
                             log::warn!("block height is None for block({slot_height}");
                             continue;
                         };
+                        let time = if let Some(block_time) = block.block_time {
+                            DateTime::from_timestamp(block_time, 0)
+                        } else {
+                            None
+                        };
                         if let Err(err) = blocks_tx
                             .send(BlockInfo {
-                                slot: Some(slot_height),
+                                slot: slot_height,
                                 block,
                                 block_height,
+                                time,
                             })
                             .await
                         {

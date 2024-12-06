@@ -12,6 +12,8 @@ use {
             SubscribeRequestFilterBlocks, SubscribeRequestPing,
         },
     },
+    tonic::transport::channel::ClientTlsConfig,
+    chrono::prelude::*,
 };
 
 pub async fn new_geyser_client(
@@ -22,6 +24,7 @@ pub async fn new_geyser_client(
 ) -> Result<GeyserGrpcClient<impl Interceptor>> {
     let client = GeyserGrpcClient::build_from_shared(endpoint.to_string())?
         .x_token(token.to_string().into())?
+        .tls_config(ClientTlsConfig::new().with_native_roots())?
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(10))
         .keep_alive_while_idle(true)
@@ -86,10 +89,17 @@ pub async fn subscribe_blocks(
                         Ok(block) => match process_block(block, no_minimization) {
                             Ok(block) => {
                                 if let Some(block_height) = block.block_height {
+                                    log::info!("got_block(slot={}, height={})", slot, block_height);
+                                    let time = if let Some(block_time) = block.block_time {
+                                        DateTime::from_timestamp(block_time, 0)
+                                    } else {
+                                        None
+                                    };
                                     if let Err(err) = blocks_tx
                                         .send(BlockInfo {
-                                            slot: Some(slot),
+                                            slot,
                                             block,
+                                            time,
                                             block_height,
                                         })
                                         .await

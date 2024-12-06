@@ -34,7 +34,6 @@ fn load_stringified_credentials(credential: String) -> Result<Credentials, Strin
     Credentials::from_str(&credential).map_err(|err| format!("{err}"))
 }
 
-#[derive(Debug)]
 pub struct AccessTokenInner {
     credentials: Credentials,
     scope: Scope,
@@ -42,7 +41,7 @@ pub struct AccessTokenInner {
     refresh_active: AtomicBool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AccessToken {
     inner: Arc<AccessTokenInner>,
 }

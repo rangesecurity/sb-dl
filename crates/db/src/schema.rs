@@ -3,21 +3,11 @@
 diesel::table! {
     use diesel::sql_types::*;
 
-    blocks (id) {
-        id -> Uuid,
+    blocks (number) {
         number -> Int8,
-        data -> Jsonb,
-        slot -> Nullable<Int8>,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-
-    blocks_2 (id) {
-        id -> Uuid,
-        number -> Int8,
-        slot -> Nullable<Int8>,
+        slot -> Int8,
+        time -> Nullable<Timestamptz>,
+        processed -> Bool,
         data -> Jsonb,
     }
 }
@@ -52,15 +42,14 @@ diesel::table! {
         account -> Varchar,
         vaults -> Array<Nullable<Text>>,
         members -> Array<Nullable<Text>>,
-        threshold -> Int4,
-        program_version -> Int4,
-        voting_members_count -> Int4,
+        threshold -> Int8,
+        program_version -> Int8,
+        voting_members_count -> Int8,
     }
 }
 
 diesel::allow_tables_to_appear_in_same_query!(
     blocks,
-    blocks_2,
     idls,
     programs,
     squads,

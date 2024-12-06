@@ -4,5 +4,6 @@ CREATE TABLE squads (
     vaults TEXT[] NOT NULL UNIQUE,
     members TEXT[] NOT NULL,
     threshold INT NOT NULL,
-    program_version INT NOT NULL
+    program_version INT NOT NULL,
+    voting_members_count INT NOT NULL DEFAULT 0
 );
