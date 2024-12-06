@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context};
 use chrono::prelude::*;
-use diesel::prelude::*;
+use diesel::{prelude::*, result::DatabaseErrorKind};
 use uuid::Uuid;
 
 use crate::models::{Blocks, Idls, NewBlock, NewSquads, Programs, Squads};
@@ -245,7 +245,7 @@ impl Client {
         d: &serde_json::Value,
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
-        NewBlock {
+        let res =  NewBlock {
             number: n,
             slot: s,
             time: t,
@@ -253,9 +253,20 @@ impl Client {
             data: d,
         }
         .insert_into(blocks)
-        .on_conflict_do_nothing()
-        .execute(conn)?;
-
-        Ok(())
+        .execute(conn); 
+        match res {
+            Ok(_) => Ok(()),
+            Err(diesel::result::Error::DatabaseError(kind, _)) => {
+                match kind {
+                    // we want to mask an error returned if we have already seen this block
+                    // this ensure we don't persist data to disk which we have already indexed
+                    //
+                    // this can potentially occur if two indexing services try to index the same data
+                    DatabaseErrorKind::UniqueViolation => Ok(()),
+                    _ => Err(anyhow!("{:#?}", kind)),
+                }
+            }
+            Err(err) => Err(anyhow!("{err:#?}"))
+        }
     }
 }
