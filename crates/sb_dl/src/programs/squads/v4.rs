@@ -1,7 +1,5 @@
 use std::cmp::max;
-
-use anchor_lang::prelude::*;
-use anchor_lang::system_program;
+use solana_sdk::{pubkey::Pubkey, system_program};
 
 pub const ID: Pubkey = solana_sdk::pubkey!("SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf");
 pub const DISCRIMINATOR: [u8; 8] = [224, 116, 121, 186, 68, 161, 79, 236];

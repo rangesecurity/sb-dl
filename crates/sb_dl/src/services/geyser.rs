@@ -12,6 +12,7 @@ use {
             SubscribeRequestFilterBlocks, SubscribeRequestPing,
         },
     },
+    tonic::transport::channel::ClientTlsConfig,
     chrono::prelude::*,
 };
 
@@ -23,6 +24,7 @@ pub async fn new_geyser_client(
 ) -> Result<GeyserGrpcClient<impl Interceptor>> {
     let client = GeyserGrpcClient::build_from_shared(endpoint.to_string())?
         .x_token(token.to_string().into())?
+        .tls_config(ClientTlsConfig::new().with_native_roots())?
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(10))
         .keep_alive_while_idle(true)

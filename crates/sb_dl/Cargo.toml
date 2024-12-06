@@ -80,7 +80,9 @@ version = "0.7"
 version = "0.4"
 [dependencies.elasticsearch]
 version = "8.15.0-alpha.1"
+[dependencies.tonic]
+version = "0.12.1"
 [dependencies.db]
 path = "../db"
 [dependencies.solana-storage-bigtable]
-version = "2.1.4"
+path = "../storage-bigtable"
