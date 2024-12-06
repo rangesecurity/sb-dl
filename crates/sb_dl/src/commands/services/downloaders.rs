@@ -335,7 +335,7 @@ async fn process_block(block_info: BlockInfo, conn: &mut PgConnection, failed_bl
             sanitize_value(&mut block);
             // replace escaped unicode points with empty string
             sanitize_for_postgres(&mut block);
-            let err: Result<(), anyhow::Error> = client.insert_block(
+            let err = client.insert_block(
                 conn,
                 block_info.block_height as i64,
                 slot as i64,
