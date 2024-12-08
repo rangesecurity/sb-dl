@@ -17,9 +17,6 @@
 -- SELECT diesel_manage_updated_at('users');
 -- ```
 
-
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 CREATE TABLE blocks (
     number BIGINT NOT NULL PRIMARY KEY,
     slot BIGINT NOT NULL UNIQUE,
@@ -27,3 +24,6 @@ CREATE TABLE blocks (
     processed BOOLEAN NOT NULL DEFAULT false,
     data JSONB NOT NULL
 );
+
+CREATE INDEX blocks_time_key ON blocks(time);
+CREATE INDEX blocks_processed_key ON blocks(processed);

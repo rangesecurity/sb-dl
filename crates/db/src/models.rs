@@ -34,8 +34,8 @@ pub struct Programs {
 
 #[derive(Queryable, AsChangeset, Identifiable, Debug, Clone, Selectable, Default, Insertable)]
 #[diesel(table_name = super::schema::squads)]
+#[diesel(primary_key(account))]
 pub struct Squads {
-    pub id: Uuid,
     pub account: String,
     pub vaults: Vec<Option<String>>,
     pub members: Vec<Option<String>>,

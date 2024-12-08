@@ -37,8 +37,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    squads (id) {
-        id -> Uuid,
+    squads (account) {
         account -> Varchar,
         vaults -> Array<Nullable<Text>>,
         members -> Array<Nullable<Text>>,
