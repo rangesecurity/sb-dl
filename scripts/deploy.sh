@@ -18,7 +18,7 @@ echo "**************************************************************************
 echo "* Build sb_dl"
 echo "********************************************************************************"
 # use specific rustc version to avoid illegal hardware instruction errors
-rustup default 1.78
+rustup default 1.79
 make cli-release
 
 echo ""
