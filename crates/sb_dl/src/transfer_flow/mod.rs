@@ -34,7 +34,7 @@ use {
     solana_transaction_status::{
         option_serializer::OptionSerializer, parse_accounts::ParsedAccount, EncodedTransaction,
         EncodedTransactionWithStatusMeta, UiConfirmedBlock, UiInnerInstructions, UiInstruction,
-        UiMessage, UiParsedInstruction, UiTransactionStatusMeta, UiTransactionTokenBalance,
+        UiMessage, UiParsedInstruction, UiTransactionTokenBalance,
     },
     std::collections::HashMap,
     types::{OrderedTransfers, TokenOwnerInfo, Transfer, TransferFlow},
@@ -46,24 +46,24 @@ pub fn create_ordered_transfer_for_block(block: UiConfirmedBlock) -> Result<Vec<
         .transactions
         .with_context(|| "no txs found")?
         .into_iter()
-        .filter_map(|tx| {
-            let tx_hash = if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
+        .filter_map(|mut tx| {
+            let tx_hash = if let EncodedTransaction::Json(ui_tx) = &mut tx.transaction {
                 if ui_tx.signatures.is_empty() {
                     log::warn!("found no signatures");
                     return None;
                 }
-                &ui_tx.signatures[0]
+                std::mem::take(&mut ui_tx.signatures[0])
             } else {
                 log::warn!("unsupportd tx type");
                 return None;
             };
-            let transfer_flow = match prepare_transfer_flow_for_tx(&tx) {
+            let transfer_flow = match prepare_transfer_flow_for_tx(tx) {
                 Ok(flow) => flow,
-                Err(err) => {
+                Err(_) => {
                     return None;
                 }
             };
-            match create_ordered_transfers(tx_hash, transfer_flow) {
+            match create_ordered_transfers(&tx_hash, transfer_flow) {
                 Ok(ordered_transfers) => Some(ordered_transfers),
                 Err(err) => {
                     log::debug!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
@@ -84,7 +84,7 @@ pub fn create_ordered_transfer_for_tx(
     let tx = block
         .transactions
         .with_context(|| "no txs found")?
-        .iter()
+        .into_iter()
         .find(|tx| {
             if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
                 if ui_tx.signatures[0].eq(tx_hash) {
@@ -93,10 +93,9 @@ pub fn create_ordered_transfer_for_tx(
             }
             false
         })
-        .cloned()
         .with_context(|| "failed to find matching tx")?;
     let transfer_flow =
-        prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")?;
+        prepare_transfer_flow_for_tx(tx).with_context(|| "failed to prepare transfer flow")?;
     create_ordered_transfers(tx_hash, transfer_flow)
 }
 
@@ -108,7 +107,7 @@ pub fn prepare_transfer_flow_for_tx_hash(
     let tx = block
         .transactions
         .with_context(|| "no txs found")?
-        .iter()
+        .into_iter()
         .find(|tx| {
             if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
                 if ui_tx.signatures[0].eq(tx_hash) {
@@ -117,28 +116,27 @@ pub fn prepare_transfer_flow_for_tx_hash(
             }
             false
         })
-        .cloned()
         .with_context(|| "failed to find matching tx")?;
-    prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")
+    prepare_transfer_flow_for_tx(tx).with_context(|| "failed to prepare transfer flow")
 }
 
-fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> anyhow::Result<TransferFlow> {
+fn prepare_transfer_flow_for_tx(tx: EncodedTransactionWithStatusMeta) -> anyhow::Result<TransferFlow> {
     let tx_meta = tx.meta.as_ref().with_context(|| "tx meta is None")?;
     // skip parsing failed transactions
     if tx_meta.err.is_some() {
         return Err(anyhow!("tx failed"));
     }
     // pre_balances[0] is equal to account_keys[0]
-    let _pre_balances = tx_meta.pre_balances.clone();
-    let _post_balances = tx_meta.post_balances.clone();
+    //let _pre_balances = tx_meta.pre_balances.clone();
+    //let _post_balances = tx_meta.post_balances.clone();
     
     // pre_token_balances[X].account_index = 1 is equal to account_keys[1]
-    let pre_token_balances = if let OptionSerializer::Some(bals) = &tx_meta.pre_token_balances {
+    let mut pre_token_balances = if let OptionSerializer::Some(bals) = &tx_meta.pre_token_balances {
         bals.clone()
     } else {
         vec![]
     };
-    let post_token_balances = if let OptionSerializer::Some(bals) = &tx_meta.post_token_balances {
+    let mut post_token_balances = if let OptionSerializer::Some(bals) = &tx_meta.post_token_balances {
         bals.clone()
     } else {
         vec![]
@@ -149,10 +147,15 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> anyhow
     let token_account_owners = owner_of_token_accounts_by_account(&pre_token_balances, &post_token_balances, &account_keys).with_context(|| "failed to get owner_of_token_accounts")?;
 
     let token_owner_infos_by_index =
-        prepare_token_owner_infos(&pre_token_balances, &post_token_balances);
+        prepare_token_owner_infos(&mut pre_token_balances, &mut post_token_balances);
 
-    let inner_instructions = get_inner_instructions(&tx_meta);
-    let outer_instructions = get_outer_instructions(tx).with_context(|| "failed to get outer instructions")?;
+    let inner_instructions =     if let OptionSerializer::Some(inner_ixs) = &tx_meta.inner_instructions {
+        inner_ixs
+    } else {
+        &vec![]
+    };
+
+    let outer_instructions = get_outer_instructions(&tx).with_context(|| "failed to get outer instructions")?;
 
     let mut token_mints_by_account =
         get_token_mints_by_owner(&token_owner_infos_by_index, &account_keys);
@@ -178,8 +181,8 @@ fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> anyhow
 }
 
 fn prepare_token_owner_infos(
-    pre_token_balances: &[UiTransactionTokenBalance],
-    post_token_balances: &[UiTransactionTokenBalance],
+    pre_token_balances: &mut [UiTransactionTokenBalance],
+    post_token_balances: &mut [UiTransactionTokenBalance],
 ) -> HashMap<u8, TokenOwnerInfo> {
     // we need to track address that own token accounts in order to get mint information
     // for non checked transfers by checking the account index
@@ -187,16 +190,22 @@ fn prepare_token_owner_infos(
     // chaining both interators is likely unnecessary since the mint, owner, and index
     // information should be the same
     pre_token_balances
-        .iter()
-        .chain(post_token_balances.iter())
+        .iter_mut()
+        .chain(post_token_balances.iter_mut())
         .for_each(|balance| {
+            let owner = if let OptionSerializer::Some(owner) = balance.owner.as_mut() {
+                std::mem::take(owner)
+            } else {
+                String::new()
+            };
             infos.insert(
                 balance.account_index,
                 TokenOwnerInfo {
-                    mint: balance.mint.clone(),
+                    //mint: balance.mint.clone(),
+                    mint: std::mem::take(&mut balance.mint),
                     // for older txs this can be an empty string
                     // https://github.com/solana-labs/solana/pull/22146
-                    owner: Into::<Option<String>>::into(balance.owner.clone()).unwrap_or_default(),
+                    owner,
                     // the account index numbering follows array element number
                     // so account_index 3, would be account_keys[3],
                     // this is different than instruction numbering where
@@ -207,16 +216,6 @@ fn prepare_token_owner_infos(
         });
 
     return infos;
-}
-
-fn get_inner_instructions(tx_meta: &UiTransactionStatusMeta) -> Vec<UiInnerInstructions> {
-    // get the inner instructions
-
-    if let OptionSerializer::Some(inner_ixs) = &tx_meta.inner_instructions {
-        inner_ixs.clone()
-    } else {
-        vec![]
-    }
 }
 
 fn get_inner_instructions_by_index(
@@ -320,24 +319,24 @@ fn get_outer_instructions_by_index(
     Ok(outer_instruction_by_index)
 }
 
-fn get_account_keys(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<ParsedAccount>> {
+fn get_account_keys(tx: &EncodedTransactionWithStatusMeta) -> Result<&Vec<ParsedAccount>> {
     let EncodedTransaction::Json(tx) = &tx.transaction else {
         return Err(anyhow!("unsupported tx type"))
     };
     let UiMessage::Parsed(parsed_msg) = &tx.message else {
         return Err(anyhow!("sunupported message type"));
     };
-    return Ok(parsed_msg.account_keys.clone())
+    return Ok(&parsed_msg.account_keys)
 }
 
-fn get_outer_instructions(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<UiInstruction>> {
+fn get_outer_instructions(tx: &EncodedTransactionWithStatusMeta) -> Result<&Vec<UiInstruction>> {
     let EncodedTransaction::Json(tx) = &tx.transaction else {
         return Err(anyhow!("unsupported tx type"))
     };
     let UiMessage::Parsed(parsed_msg) = &tx.message else {
         return Err(anyhow!("sunupported message type"));
     };
-    return Ok(parsed_msg.instructions.clone())
+    return Ok(&parsed_msg.instructions)
 }
 
 fn get_token_mints_by_owner(
@@ -345,7 +344,7 @@ fn get_token_mints_by_owner(
     account_keys: &[ParsedAccount],
 ) -> HashMap<String, String> {
     // match account_keys => token_mint
-    let mut token_mints_by_account: HashMap<String, String> = Default::default();
+    let mut token_mints_by_account: HashMap<String, String> = HashMap::with_capacity(token_owner_infos_by_index.len());
     for (idx, account) in account_keys.iter().enumerate() {
         if let Some(token_info) = token_owner_infos_by_index.get(&(idx as u8)) {
             token_mints_by_account.insert(account.pubkey.clone(), token_info.mint.clone());
@@ -403,7 +402,7 @@ fn get_ordered_transfers(
             Option<DecodedInstruction>,
             HashMap<u8, Vec<DecodedInstruction>>,
         ),
-    > = Default::default();
+    > = HashMap::with_capacity(outer_instruction_by_index.len());
 
     // first prepare the outer instructions
     for (idx, ix) in outer_instruction_by_index {
@@ -428,7 +427,7 @@ fn get_ordered_transfers(
             // in this case the outer instruction which triggered this inner instruction didnt transfer any tokens
             // so we need to create the inital key in ordered_transfers
             let mut inner_ordered_transfers: HashMap<u8, Vec<DecodedInstruction>> =
-                Default::default();
+                HashMap::with_capacity(1);
             inner_ordered_transfers.insert(idx, ixs);
             ordered_transfers.insert(idx, (None, inner_ordered_transfers));
         }
@@ -440,7 +439,7 @@ fn create_ordered_transfers(
     tx_hash: &str,
     transfer_flow: TransferFlow,
 ) -> anyhow::Result<OrderedTransfers> {
-    let mut ordered_transfers: Vec<Transfer> = vec![];
+    let mut ordered_transfers: Vec<Transfer> = Vec::with_capacity(transfer_flow.len());
     let mut keys = transfer_flow.keys().map(|key| *key).collect::<Vec<_>>();
     keys.sort();
     for key in keys {
@@ -494,20 +493,20 @@ fn extract_token_mints_from_account_init_instructions(
                 continue;
             };
 
-            let mut decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
+            let decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
                 Ok(Some(decoded)) => decoded,
                 Ok(None) => continue, // unrecognized instruction
-                Err(err) => continue,
+                Err(_) => continue,
             };
             let DecodedInstruction::TokenInstruction(token_ix) = decoded_ix else {
                 continue;
             };
             match token_ix {
                 TokenInstructions::InitializeAccount(init_account) => {
-                    token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+                    token_mints_by_account.insert(init_account.account, init_account.mint);
                 }
                 TokenInstructions::InitializeAccount3(init_account) => {
-                    token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+                    token_mints_by_account.insert(init_account.account, init_account.mint);
 
                 },
                 _ => continue,
@@ -525,20 +524,20 @@ fn extract_token_mints_from_account_init_instructions(
                 continue;
             };
 
-        let mut decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
+        let decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
             Ok(Some(decoded)) => decoded,
             Ok(None) => continue, // unrecognized instruction
-            Err(err) => continue,
+            Err(_) => continue,
         };
         let DecodedInstruction::TokenInstruction(token_ix) = decoded_ix else {
             continue;
         };
         match token_ix {
             TokenInstructions::InitializeAccount(init_account) => {
-                token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+                token_mints_by_account.insert(init_account.account, init_account.mint);
             }
             TokenInstructions::InitializeAccount3(init_account) => {
-                token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+                token_mints_by_account.insert(init_account.account, init_account.mint);
 
             },
             _ => continue,
