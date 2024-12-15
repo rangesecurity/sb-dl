@@ -1,0 +1,14 @@
+[Unit]
+Description=geyser stream v2 indexer service
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/range/sb_dl_v2 --config /home/range/config_v2.yaml -services geyser-stream --threads 4
+
+# Restart every >2 seconds to avoid StartLimitInterval failure
+RestartSec=30
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

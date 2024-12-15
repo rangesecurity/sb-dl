@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use chrono::prelude::*;
 use db::{client::Client, migrations::run_migrations, new_connection};
 use diesel::Connection;
@@ -12,8 +13,13 @@ use sb_dl::{
 use solana_sdk::pubkey::Pubkey;
 use std::{str::FromStr, time::Duration};
 
-pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> anyhow::Result<()> {
-    let frequency = Duration::from_secs(*matches.get_one::<u64>("frequency").unwrap());
+use crate::cli::ServicesCommands;
+
+pub async fn index_multisigs(cmd: ServicesCommands, config_path: &str) -> anyhow::Result<()> {
+    let ServicesCommands::SquadsIndexer { frequency } = cmd else {
+        return Err(anyhow!("invalid command"));
+    };
+    let frequency = Duration::from_secs(frequency);
 
     let cfg = Config::load(config_path).await?;
     let indexer = SquadsIndexer::new(cfg.rpc_url.clone());
@@ -52,8 +58,8 @@ pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> a
                                 Some(member.key.to_string())
                             }
                         })
-                        .count() as i32,
-                    msig_info.threshold as i32,
+                        .count() as i64,
+                    msig_info.threshold as i64,
                     4,
                 ) {
                     log::error!("failed to record multisig(v4=true, account={account}) {err:#?}");
@@ -91,8 +97,8 @@ pub async fn index_multisigs(matches: &clap::ArgMatches, config_path: &str) -> a
                         .iter()
                         .map(|key| key.to_string())
                         .collect::<Vec<_>>(),
-                    msig_info.keys.len() as i32,
-                    msig_info.threshold as i32,
+                    msig_info.keys.len() as i64,
+                    msig_info.threshold as i64,
                     3,
                 ) {
                     log::error!("failed to record multisig(v3=true, account={account}) {err:#?}");

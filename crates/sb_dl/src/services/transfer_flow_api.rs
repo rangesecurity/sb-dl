@@ -5,7 +5,7 @@ use {
         response::IntoResponse,
         routing::get,
         Json, Router,
-    }, chrono::prelude::*, db::{client::BlockFilter, models::BlockTableChoice, new_connection_pool}, diesel::{
+    }, chrono::prelude::*, db::{client::BlockFilter, new_connection_pool}, diesel::{
         prelude::*, r2d2::{ConnectionManager, Pool, PooledConnection}
     }, serde::{Deserialize, Serialize}, solana_transaction_status::UiConfirmedBlock, std::sync::Arc
 };
@@ -26,7 +26,7 @@ pub fn new_router(db_url: &str) -> anyhow::Result<Router> {
     let db_pool = new_connection_pool(db_url, 10)?;
     let app = Router::new()
         .route(
-            "/orderedTransfers/:blockNumber/:tableNumber",
+            "/orderedTransfers/:blockNumber",
             get(ordered_transfers_for_block),
         )
         .layer(Extension(Arc::new(State { db_pool })));
@@ -34,25 +34,15 @@ pub fn new_router(db_url: &str) -> anyhow::Result<Router> {
 }
 
 async fn ordered_transfers_for_block(
-    Path((number, table_number)): Path<(i64, i64)>,
+    Path(number): Path<i64>,
     Extension(state): Extension<Arc<State>>,
 ) -> impl IntoResponse {
-    let block_table_choice: BlockTableChoice = match TryFrom::try_from(table_number as u8) {
-        Ok(choice) => choice,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(Error {
-                    msg: "invalid table choice, must be one of [1, 2]".to_string()
-                }),
-            ).into_response()
-        }
-    };
+
     match state.db_pool.get() {
         Ok(mut db_conn) => {
 
                     let client = db::client::Client {};
-                    match client.select_block(&mut db_conn, BlockFilter::Number(number), block_table_choice) {
+                    match client.select_block(&mut db_conn, BlockFilter::Number(number)) {
                         Ok(mut blocks) => {
                             if blocks.is_empty() {
                                 return (
@@ -131,8 +121,7 @@ async fn ordered_transfers_for_block(
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OrderedTransfersResponse {
     pub transfers: Vec<OrderedTransfers>,
-    /// eventually remove Option<_> when historical  data has been corrected
-    pub slot: Option<i64>,
+    pub slot: i64,
     /// the block_time field in UiConfirmedBlock has an Option<_> type
     /// so its possible older values do not contain that field
     /// in which case we will set this time to None
