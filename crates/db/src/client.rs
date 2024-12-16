@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context};
 use chrono::prelude::*;
-use diesel::{prelude::*, result::DatabaseErrorKind};
+use diesel::{pg::Pg, prelude::*, result::DatabaseErrorKind, sql_query};
 use uuid::Uuid;
 
 use crate::models::{Blocks, Idls, NewBlock, NewSquads, Programs, Squads};
@@ -245,7 +245,7 @@ impl Client {
         d: &serde_json::Value,
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
-        let res =  NewBlock {
+        let res = NewBlock {
             number: n,
             slot: s,
             time: t,
@@ -253,7 +253,7 @@ impl Client {
             data: d,
         }
         .insert_into(blocks)
-        .execute(conn); 
+        .execute(conn);
         match res {
             Ok(_) => Ok(()),
             Err(diesel::result::Error::DatabaseError(kind, _)) => {
