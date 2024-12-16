@@ -1,22 +1,54 @@
 use std::time::Duration;
 use chrono::prelude::*;
 use anyhow::{anyhow, Context};
-use db::{client::{BlockFilter, Client}, migrations::run_migrations};
+use db::{client::{BlockFilter, Client}, migrations::run_migrations, new_connection};
 use sb_dl::{config::Config, services::backfill::Backfiller, types::BlockInfo};
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_sdk::clock::DEFAULT_SLOTS_PER_EPOCH;
 
 use crate::cli::ServicesCommands;
 
 use super::downloaders::block_persistence_loop;
 
+const SLOTS_PER_SIX_HOURS: u64 = ((DEFAULT_SLOTS_PER_EPOCH / 2) / 24) *  6;
+
+pub async fn find_gaps(
+    cmd: ServicesCommands,
+    config_path: &str
+) -> anyhow::Result<()> {
+    let ServicesCommands::FindGaps {limit} = cmd else {
+        return Err(anyhow!("invalid command"));
+    };
+    let cfg = Config::load(config_path).await?;
+    let rpc = RpcClient::new(cfg.rpc_url.clone());
+
+    let current_slot = rpc.get_slot().await?;
+    
+    let mut conn = new_connection(&cfg.db_url)?;
+    run_migrations(&mut conn);
+    
+    let client = Client{};
+    
+    let gaps = client.find_gaps(&mut conn, (current_slot - SLOTS_PER_SIX_HOURS) as i64, current_slot as i64, Some(limit))?;
+    
+    log::info!("found gaps {gaps:#?}");
+    Ok(())
+}
+
 pub async fn repair_gaps(
     cmd: ServicesCommands,
     config_path: &str
 ) -> anyhow::Result<()> {
-    let ServicesCommands::RepairGaps { starting_number, failed_blocks_dir, threads } = cmd else {
+    let ServicesCommands::RepairGaps { limit, failed_blocks_dir, threads } = cmd else {
         return Err(anyhow!("invalid command"));
     };
 
     let cfg = Config::load(config_path).await?;
+
+    let current_slot = {
+        let rpc = RpcClient::new(cfg.rpc_url.clone());
+        rpc.get_slot().await?
+    };
     let conn_pool = db::new_connection_pool(&cfg.db_url, threads as u32 * 2)?;
 
 
@@ -41,10 +73,11 @@ pub async fn repair_gaps(
 
     let backfiller = Backfiller::new(&cfg.rpc_url);
     let client = Client{};
-    let gap_end = client.find_gap_end(&mut conn, starting_number)?;
+    let gaps = client.find_gaps(&mut conn, (current_slot - SLOTS_PER_SIX_HOURS) as i64, current_slot as i64, Some(limit))?;
+    log::info!("found {} gaps", gaps.len());
 
     // start trying to repair gaps at the block immediately preceeding the current missing block
-    for missing_block in starting_number-1..gap_end {
+    for missing_block in gaps {
         // get block info for the previous block which isn't missing
         let blocks = client.select_block(&mut conn, BlockFilter::Number(missing_block - 1))?;
         if blocks.is_empty() {
@@ -78,13 +111,8 @@ pub async fn repair_gaps(
                 possible_slot += 1;
             }
         }
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        
     }
-
-
-
-
-
-
+    
     Ok(())
 }

@@ -60,6 +60,9 @@ async fn main() -> Result<()> {
                 commands::services::downloaders::import_failed_blocks(command.clone(), &app.config)
                     .await
             }
+            ServicesCommands::FindGaps {..} => {
+                commands::services::repair_gaps::find_gaps(command.clone(), &app.config).await
+            }
         },
         Commands::NewConfig => commands::config::new_config(&app.config).await,
         Commands::ManualIdlImport { input, program_id } => {
