@@ -1,1 +1,1 @@
-CREATE INDEX blocks_number_key ON blocks(number);
+CREATE INDEX IF NOT EXISTS blocks_number_key ON blocks(number);
