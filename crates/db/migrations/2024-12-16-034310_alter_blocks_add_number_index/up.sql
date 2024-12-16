@@ -1,0 +1,1 @@
+CREATE INDEX blocks_number_key ON blocks(number);
