@@ -128,14 +128,15 @@ pub enum ServicesCommands {
 
     #[command(about = "used to repair gaps in block coverage")]
     RepairGaps {
-        #[arg(long)]
-        starting_number: i64,
 
         #[arg(from_global)]
         failed_blocks_dir: String,
 
         #[arg(from_global)]
         threads: u32,
+
+        #[arg(long, help = "limit number of gaps")]
+        limit: i64
     },
 
     #[command(about = "transfer parsing service to push decoded transfers into elasticsearch")]
@@ -172,4 +173,9 @@ pub enum ServicesCommands {
         #[arg(from_global)]
         failed_blocks_dir: String,
     },
+    #[command(about = "check for gaps in block data")]
+    FindGaps {
+        #[arg(long)]
+        limit: i64
+    }
 }
