@@ -110,8 +110,8 @@ impl TransferParser {
             Ok(ordered_transfers) => {
                 return Ok(OrderedTransfersResponse {
                     transfers: ordered_transfers,
-                    slot,
                     time,
+                    slot: Some(slot)
                 });
             }
             Err(err) => {

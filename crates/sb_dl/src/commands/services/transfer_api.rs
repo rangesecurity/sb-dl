@@ -12,5 +12,5 @@ pub async fn transfer_flow_api(
     };
     let cfg = Config::load(config_path).await?;
 
-    serve_api(&listen_url, &cfg.db_url).await
+    serve_api(&listen_url).await
 }

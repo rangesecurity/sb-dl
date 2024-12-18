@@ -22,8 +22,8 @@ async fn main() -> Result<()> {
             }
         }
     }
-    init_log(&app.log_level, &app.log_file);
-    match &app.command {
+    let guard = init_log(&app.log_level, &app.log_file);
+    let res  = match &app.command {
         Commands::Services { command } => match command {
             ServicesCommands::BigtableDownloader { .. } => {
                 commands::services::downloaders::bigtable_downloader(command.clone(), &app.config)
@@ -60,6 +60,9 @@ async fn main() -> Result<()> {
                 commands::services::downloaders::import_failed_blocks(command.clone(), &app.config)
                     .await
             }
+            ServicesCommands::FindGaps {..} => {
+                commands::services::repair_gaps::find_gaps(command.clone(), &app.config).await
+            }
         },
         Commands::NewConfig => commands::config::new_config(&app.config).await,
         Commands::ManualIdlImport { input, program_id } => {
@@ -86,5 +89,10 @@ async fn main() -> Result<()> {
         Commands::FindGapEnd {
             gap_start,
         } => commands::db::find_gap_end(*gap_start, &app.config).await,
+    };
+
+    if let Some(g) = guard {
+        drop(g);
     }
+    res
 }

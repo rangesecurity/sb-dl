@@ -172,6 +172,7 @@ impl Downloader {
                     }),
                     request_stats_view: 0,
                     reversed: false,
+                    authorized_view_name: "".to_string(),
                 })
                 .await
                 .with_context(|| format!("failed to get blocks"))?
@@ -272,6 +273,7 @@ impl Downloader {
                     }),
                     request_stats_view: 0,
                     reversed: false,
+                    authorized_view_name: "".to_string(),
                 })
                 .await
                 .with_context(|| format!("failed to get block for slot({slot})"))?

@@ -1,12 +1,8 @@
 use {
-    anyhow::Context,
-    solana_sdk::pubkey::Pubkey,
-    solana_transaction_status::{
+    anyhow::Context, solana_sdk::pubkey::Pubkey, solana_transaction_status::{
         BlockEncodingOptions, ConfirmedBlock, EncodedTransaction, TransactionDetails,
         UiConfirmedBlock, UiInstruction, UiMessage, UiParsedInstruction, UiTransactionEncoding,
-    },
-    std::str::FromStr,
-    tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter, Layer},
+    }, std::{io::BufWriter, str::FromStr}, tracing_appender::non_blocking::WorkerGuard, tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter, Layer}
 };
 
 /// Performs the following
@@ -106,7 +102,7 @@ pub fn filter_vote_transactions(mut block: UiConfirmedBlock) -> UiConfirmedBlock
 
 /// initializes logging capabilities but adds a variety of customization, including file+line which sourced the log,
 /// a tokio-console used for monitoring async tasks, as well as log-level filtration
-pub fn init_log(level: &str, file: &str) {
+pub fn init_log(level: &str, file: &str) -> Option<WorkerGuard> {
     let mut layers = Vec::with_capacity(2);
     let level_filter = LevelFilter::from_level(tracing::Level::from_str(level).unwrap());
     let filter = EnvFilter::from_default_env().add_directive(level_filter.into());
@@ -119,16 +115,19 @@ pub fn init_log(level: &str, file: &str) {
             .with_filter(filter)
             .boxed(),
     );
+    let mut wg: Option<WorkerGuard> = None;
     if file != "" {
-        let log_file = std::fs::File::options()
+        let log_file = BufWriter::new(std::fs::File::options()
             .create(true)
             .append(true)
             .open(file)
-            .unwrap();
+            .unwrap());
+        let (non_blocking, guard) = tracing_appender::non_blocking(log_file);
+        wg = Some(guard);
         layers.push(
             tracing_subscriber::fmt::layer()
                 .json()
-                .with_writer(log_file)
+                .with_writer(non_blocking)
                 .with_filter(EnvFilter::from_default_env().add_directive(level_filter.into()))
                 .boxed(),
         );
@@ -136,6 +135,7 @@ pub fn init_log(level: &str, file: &str) {
     if let Err(err) = tracing_subscriber::registry().with(layers).try_init() {
         log::warn!("global subscriber already registered {err:#?}");
     }
+    wg
 }
 
 #[cfg(test)]

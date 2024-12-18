@@ -68,7 +68,6 @@ pub fn create_ordered_transfer_for_block(block: UiConfirmedBlock) -> Result<Vec<
                 Err(err) => {
                     log::debug!("failed to create ordered_transfers(tx={tx_hash}) {err:#?}");
                     return None;
-
                 }
             }
         })
@@ -84,7 +83,7 @@ pub fn create_ordered_transfer_for_tx(
     let tx = block
         .transactions
         .with_context(|| "no txs found")?
-        .iter()
+        .into_iter()
         .find(|tx| {
             if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
                 if ui_tx.signatures[0].eq(tx_hash) {
@@ -93,7 +92,6 @@ pub fn create_ordered_transfer_for_tx(
             }
             false
         })
-        .cloned()
         .with_context(|| "failed to find matching tx")?;
     let transfer_flow =
         prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")?;
@@ -108,7 +106,7 @@ pub fn prepare_transfer_flow_for_tx_hash(
     let tx = block
         .transactions
         .with_context(|| "no txs found")?
-        .iter()
+        .into_iter()
         .find(|tx| {
             if let EncodedTransaction::Json(ui_tx) = &tx.transaction {
                 if ui_tx.signatures[0].eq(tx_hash) {
@@ -117,59 +115,90 @@ pub fn prepare_transfer_flow_for_tx_hash(
             }
             false
         })
-        .cloned()
         .with_context(|| "failed to find matching tx")?;
     prepare_transfer_flow_for_tx(&tx).with_context(|| "failed to prepare transfer flow")
 }
 
-fn prepare_transfer_flow_for_tx(tx: &EncodedTransactionWithStatusMeta) -> anyhow::Result<TransferFlow> {
+fn prepare_transfer_flow_for_tx(
+    tx: &EncodedTransactionWithStatusMeta,
+) -> anyhow::Result<TransferFlow> {
     let tx_meta = tx.meta.as_ref().with_context(|| "tx meta is None")?;
     // skip parsing failed transactions
     if tx_meta.err.is_some() {
         return Err(anyhow!("tx failed"));
     }
     // pre_balances[0] is equal to account_keys[0]
-    let _pre_balances = tx_meta.pre_balances.clone();
-    let _post_balances = tx_meta.post_balances.clone();
-    
+    //let _pre_balances = tx_meta.pre_balances.clone();
+    //let _post_balances = tx_meta.post_balances.clone();
+
     // pre_token_balances[X].account_index = 1 is equal to account_keys[1]
     let pre_token_balances = if let OptionSerializer::Some(bals) = &tx_meta.pre_token_balances {
-        bals.clone()
+        bals
     } else {
-        vec![]
+        &vec![]
     };
     let post_token_balances = if let OptionSerializer::Some(bals) = &tx_meta.post_token_balances {
-        bals.clone()
+        bals
     } else {
-        vec![]
+        &vec![]
     };
 
-    let account_keys = get_account_keys(&tx).with_context(|| "failed to get account keys")?;
+    let account_keys = {
+        let EncodedTransaction::Json(tx) = &tx.transaction else {
+            return Err(anyhow!("unsupported tx type"));
+        };
+        let UiMessage::Parsed(parsed_msg) = &tx.message else {
+            return Err(anyhow!("sunupported message type"));
+        };
+        &parsed_msg.account_keys
+    };
 
-    let token_account_owners = owner_of_token_accounts_by_account(&pre_token_balances, &post_token_balances, &account_keys).with_context(|| "failed to get owner_of_token_accounts")?;
+    let token_account_owners =
+        owner_of_token_accounts_by_account(pre_token_balances, post_token_balances, account_keys)
+            .with_context(|| "failed to get owner_of_token_accounts")?;
 
     let token_owner_infos_by_index =
-        prepare_token_owner_infos(&pre_token_balances, &post_token_balances);
+        prepare_token_owner_infos(pre_token_balances, post_token_balances);
 
-    let inner_instructions = get_inner_instructions(&tx_meta);
-    let outer_instructions = get_outer_instructions(tx).with_context(|| "failed to get outer instructions")?;
+    let inner_instructions = if let OptionSerializer::Some(inner_ixs) = &tx_meta.inner_instructions
+    {
+        inner_ixs
+    } else {
+        &vec![]
+    };
+
+    let outer_instructions = {
+        let EncodedTransaction::Json(tx) = &tx.transaction else {
+            return Err(anyhow!("unsupported tx type"));
+        };
+        let UiMessage::Parsed(parsed_msg) = &tx.message else {
+            return Err(anyhow!("sunupported message type"));
+        };
+        &parsed_msg.instructions
+    };
 
     let mut token_mints_by_account =
-        get_token_mints_by_owner(&token_owner_infos_by_index, &account_keys);
+        get_token_mints_by_owner(&token_owner_infos_by_index, account_keys);
 
-        extract_token_mints_from_account_init_instructions(
-            &inner_instructions,
-            &outer_instructions,
-            &mut token_mints_by_account
-        );
+    extract_token_mints_from_account_init_instructions(
+        inner_instructions,
+        outer_instructions,
+        &mut token_mints_by_account,
+    );
 
     let mut inner_instructions_by_index =
-        get_inner_instructions_by_index(&token_mints_by_account, &inner_instructions).with_context(|| "failed to get inner instructions by index")?;
+        get_inner_instructions_by_index(&token_mints_by_account, inner_instructions)
+            .with_context(|| "failed to get inner instructions by index")?;
 
     let mut outer_instructions_by_index =
-        get_outer_instructions_by_index(&outer_instructions, &token_mints_by_account).with_context(|| "failed to get outer instructions by index")?;
+        get_outer_instructions_by_index(outer_instructions, &token_mints_by_account)
+            .with_context(|| "failed to get outer instructions by index")?;
 
-    replace_decoded_instruction_spl_transfer_recipients(&mut inner_instructions_by_index, &mut outer_instructions_by_index, token_account_owners);
+    replace_decoded_instruction_spl_transfer_recipients(
+        &mut inner_instructions_by_index,
+        &mut outer_instructions_by_index,
+        token_account_owners,
+    );
 
     Ok(get_ordered_transfers(
         outer_instructions_by_index,
@@ -183,7 +212,7 @@ fn prepare_token_owner_infos(
 ) -> HashMap<u8, TokenOwnerInfo> {
     // we need to track address that own token accounts in order to get mint information
     // for non checked transfers by checking the account index
-    let mut infos: HashMap<u8, TokenOwnerInfo> = Default::default();
+    let mut infos: HashMap<u8, TokenOwnerInfo> = HashMap::with_capacity(pre_token_balances.len()+post_token_balances.len());
     // chaining both interators is likely unnecessary since the mint, owner, and index
     // information should be the same
     pre_token_balances
@@ -209,25 +238,17 @@ fn prepare_token_owner_infos(
     return infos;
 }
 
-fn get_inner_instructions(tx_meta: &UiTransactionStatusMeta) -> Vec<UiInnerInstructions> {
-    // get the inner instructions
-
-    if let OptionSerializer::Some(inner_ixs) = &tx_meta.inner_instructions {
-        inner_ixs.clone()
-    } else {
-        vec![]
-    }
-}
-
 fn get_inner_instructions_by_index(
     token_mints_by_account: &HashMap<String, String>,
     inner_instructions: &[UiInnerInstructions],
 ) -> Result<HashMap<u8, Vec<DecodedInstruction>>> {
     // map inner instruction index => decoded instruction
-    let mut inner_instruction_by_index: HashMap<u8, Vec<DecodedInstruction>> = Default::default();
+    let mut inner_instruction_by_index: HashMap<u8, Vec<DecodedInstruction>> = HashMap::with_capacity(inner_instructions.len());
     // iterate over inner instructions, searching for transfers
     for ix in inner_instructions {
-        let mut decoded_instructions: Vec<DecodedInstruction> = vec![];
+        // allocate vec with capacity equal to number of token mints * 2
+        // this serves as a decent approximation for the number of possible decoded instructions
+        let mut decoded_instructions: Vec<DecodedInstruction> = Vec::with_capacity(token_mints_by_account.len()*2);
 
         // attempt to decode all possible inner instructions
         for inner_ix in &ix.instructions {
@@ -279,7 +300,7 @@ fn get_outer_instructions_by_index(
     token_mints_by_account: &HashMap<String, String>,
 ) -> Result<HashMap<u8, DecodedInstruction>> {
     // map outer instruction index => decoded instructions
-    let mut outer_instruction_by_index: HashMap<u8, DecodedInstruction> = Default::default();
+    let mut outer_instruction_by_index: HashMap<u8, DecodedInstruction> = HashMap::with_capacity(outer_instructions.len());
     for (idx, ix) in outer_instructions.iter().enumerate() {
         // token2022, spl-token, and system program will always be parsed programs will always be parsed
         let UiInstruction::Parsed(ui_ix) = ix else {
@@ -296,7 +317,7 @@ fn get_outer_instructions_by_index(
             Err(_) => {
                 // not a valid instruction to decode
                 continue;
-            },
+            }
         };
 
         if let DecodedInstruction::TokenInstruction(TokenInstructions::Transfer(ix)) =
@@ -320,32 +341,12 @@ fn get_outer_instructions_by_index(
     Ok(outer_instruction_by_index)
 }
 
-fn get_account_keys(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<ParsedAccount>> {
-    let EncodedTransaction::Json(tx) = &tx.transaction else {
-        return Err(anyhow!("unsupported tx type"))
-    };
-    let UiMessage::Parsed(parsed_msg) = &tx.message else {
-        return Err(anyhow!("sunupported message type"));
-    };
-    return Ok(parsed_msg.account_keys.clone())
-}
-
-fn get_outer_instructions(tx: &EncodedTransactionWithStatusMeta) -> Result<Vec<UiInstruction>> {
-    let EncodedTransaction::Json(tx) = &tx.transaction else {
-        return Err(anyhow!("unsupported tx type"))
-    };
-    let UiMessage::Parsed(parsed_msg) = &tx.message else {
-        return Err(anyhow!("sunupported message type"));
-    };
-    return Ok(parsed_msg.instructions.clone())
-}
-
 fn get_token_mints_by_owner(
     token_owner_infos_by_index: &HashMap<u8, TokenOwnerInfo>,
     account_keys: &[ParsedAccount],
 ) -> HashMap<String, String> {
     // match account_keys => token_mint
-    let mut token_mints_by_account: HashMap<String, String> = Default::default();
+    let mut token_mints_by_account: HashMap<String, String> = HashMap::with_capacity(token_owner_infos_by_index.len());
     for (idx, account) in account_keys.iter().enumerate() {
         if let Some(token_info) = token_owner_infos_by_index.get(&(idx as u8)) {
             token_mints_by_account.insert(account.pubkey.clone(), token_info.mint.clone());
@@ -354,31 +355,34 @@ fn get_token_mints_by_owner(
     token_mints_by_account
 }
 
-
 fn owner_of_token_accounts_by_account(
     pre_token_balances: &[UiTransactionTokenBalance],
     post_token_balances: &[UiTransactionTokenBalance],
-    account_keys: &[ParsedAccount]
-) -> Result<HashMap<
-    // token account
-    String,
-    // owner
-    String,
->> {
+    account_keys: &[ParsedAccount],
+) -> Result<
+    HashMap<
+        // token account
+        String,
+        // owner
+        String,
+    >,
+> {
     let mut owner_token_accounts: HashMap<
-    // token account
-    String, 
-    // owner
-    String,
-> = HashMap::default();
-    pre_token_balances.iter().chain(post_token_balances.iter()).for_each(|token_balance| {
-        if let OptionSerializer::Some(owner) = &token_balance.owner {
-
-            if let Some(account) = account_keys.get(token_balance.account_index as usize) {
-                owner_token_accounts.insert(account.pubkey.clone(), owner.clone());
+        // token account
+        String,
+        // owner
+        String,
+    > = HashMap::default();
+    pre_token_balances
+        .iter()
+        .chain(post_token_balances.iter())
+        .for_each(|token_balance| {
+            if let OptionSerializer::Some(owner) = &token_balance.owner {
+                if let Some(account) = account_keys.get(token_balance.account_index as usize) {
+                    owner_token_accounts.insert(account.pubkey.clone(), owner.clone());
+                }
             }
-        }
-    });
+        });
     Ok(owner_token_accounts)
 }
 fn get_ordered_transfers(
@@ -403,7 +407,7 @@ fn get_ordered_transfers(
             Option<DecodedInstruction>,
             HashMap<u8, Vec<DecodedInstruction>>,
         ),
-    > = Default::default();
+    > = HashMap::with_capacity(outer_instruction_by_index.len());
 
     // first prepare the outer instructions
     for (idx, ix) in outer_instruction_by_index {
@@ -411,7 +415,7 @@ fn get_ordered_transfers(
             // pretty sure this condition will be impossible, should we panic?
             log::warn!("invalid condition detected!");
         } else {
-            ordered_transfers.insert(idx, (Some(ix), Default::default()));
+            ordered_transfers.insert(idx, (Some(ix), HashMap::with_capacity(inner_instruction_by_index.len())));
         }
     }
 
@@ -428,7 +432,7 @@ fn get_ordered_transfers(
             // in this case the outer instruction which triggered this inner instruction didnt transfer any tokens
             // so we need to create the inital key in ordered_transfers
             let mut inner_ordered_transfers: HashMap<u8, Vec<DecodedInstruction>> =
-                Default::default();
+                HashMap::with_capacity(1);
             inner_ordered_transfers.insert(idx, ixs);
             ordered_transfers.insert(idx, (None, inner_ordered_transfers));
         }
@@ -440,7 +444,7 @@ fn create_ordered_transfers(
     tx_hash: &str,
     transfer_flow: TransferFlow,
 ) -> anyhow::Result<OrderedTransfers> {
-    let mut ordered_transfers: Vec<Transfer> = vec![];
+    let mut ordered_transfers: Vec<Transfer> = Vec::with_capacity(transfer_flow.len());
     let mut keys = transfer_flow.keys().map(|key| *key).collect::<Vec<_>>();
     keys.sort();
     for key in keys {
@@ -452,7 +456,6 @@ fn create_ordered_transfers(
             if let Some(transfer) = transfer {
                 ordered_transfers.push(transfer);
             }
-            
         }
         if !inner_transfers.contains_key(&key) {
             // no inner transfers
@@ -481,7 +484,7 @@ fn create_ordered_transfers(
 fn extract_token_mints_from_account_init_instructions(
     inner_instructions: &[UiInnerInstructions],
     outer_instructions: &[UiInstruction],
-    token_mints_by_account: &mut HashMap<String, String>, 
+    token_mints_by_account: &mut HashMap<String, String>,
 ) {
     for inner_ix in inner_instructions {
         for ix in &inner_ix.instructions {
@@ -504,26 +507,24 @@ fn extract_token_mints_from_account_init_instructions(
             };
             match token_ix {
                 TokenInstructions::InitializeAccount(init_account) => {
-                    token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+                    token_mints_by_account.insert(init_account.account, init_account.mint);
                 }
                 TokenInstructions::InitializeAccount3(init_account) => {
-                    token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
-
-                },
+                    token_mints_by_account.insert(init_account.account, init_account.mint);
+                }
                 _ => continue,
             }
         }
     }
     for ix in outer_instructions {
+        // token2022, spl-token, and system program will always be parsed programs will always be parsed
+        let UiInstruction::Parsed(ui_ix) = ix else {
+            continue;
+        };
 
-            // token2022, spl-token, and system program will always be parsed programs will always be parsed
-            let UiInstruction::Parsed(ui_ix) = ix else {
-                continue;
-            };
-
-            let UiParsedInstruction::Parsed(parsed_ix) = ui_ix else {
-                continue;
-            };
+        let UiParsedInstruction::Parsed(parsed_ix) = ui_ix else {
+            continue;
+        };
 
         let mut decoded_ix = match parsable_instructions::decode_instruction(&parsed_ix) {
             Ok(Some(decoded)) => decoded,
@@ -535,12 +536,11 @@ fn extract_token_mints_from_account_init_instructions(
         };
         match token_ix {
             TokenInstructions::InitializeAccount(init_account) => {
-                token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
+                token_mints_by_account.insert(init_account.account, init_account.mint);
             }
             TokenInstructions::InitializeAccount3(init_account) => {
-                token_mints_by_account.insert(init_account.account.clone(), init_account.mint.clone());
-
-            },
+                token_mints_by_account.insert(init_account.account, init_account.mint);
+            }
             _ => continue,
         }
     }
@@ -550,7 +550,10 @@ fn extract_token_mints_from_account_init_instructions(
 fn replace_decoded_instruction_spl_transfer_recipients(
     inner_instructions_by_index: &mut HashMap<u8, Vec<DecodedInstruction>>,
     outer_instruction_by_index: &mut HashMap<u8, DecodedInstruction>,
-    owner_of_token_accounts_by_account: HashMap<String /* token account */, String /* owner */>
+    owner_of_token_accounts_by_account: HashMap<
+        String, /* token account */
+        String, /* owner */
+    >,
 ) {
     inner_instructions_by_index.iter_mut().for_each(|(_, ixs)| {
         for ix in ixs {
@@ -564,7 +567,9 @@ fn replace_decoded_instruction_spl_transfer_recipients(
                     }
                 }
                 TokenInstructions::TransferChecked(tx_checked) => {
-                    if let Some(addr) = owner_of_token_accounts_by_account.get(&tx_checked.destination) {
+                    if let Some(addr) =
+                        owner_of_token_accounts_by_account.get(&tx_checked.destination)
+                    {
                         tx_checked.destination = addr.clone();
                     }
                 }
@@ -574,7 +579,9 @@ fn replace_decoded_instruction_spl_transfer_recipients(
                     }
                 }
                 TokenInstructions::MintToChecked(mint_checked) => {
-                    if let Some(addr) = owner_of_token_accounts_by_account.get(&mint_checked.account) {
+                    if let Some(addr) =
+                        owner_of_token_accounts_by_account.get(&mint_checked.account)
+                    {
                         mint_checked.account = addr.clone();
                     }
                 }
@@ -584,7 +591,9 @@ fn replace_decoded_instruction_spl_transfer_recipients(
                     }
                 }
                 TokenInstructions::BurnChecked(burn_checked) => {
-                    if let Some(addr) = owner_of_token_accounts_by_account.get(&burn_checked.account) {
+                    if let Some(addr) =
+                        owner_of_token_accounts_by_account.get(&burn_checked.account)
+                    {
                         burn_checked.account = addr.clone();
                     }
                 }
@@ -596,43 +605,44 @@ fn replace_decoded_instruction_spl_transfer_recipients(
     });
 
     outer_instruction_by_index.iter_mut().for_each(|(_, ix)| {
-            let DecodedInstruction::TokenInstruction(token_ixs) = ix else {
-                return;
-            };
-            match token_ixs {
-                TokenInstructions::Transfer(tx) => {
-                    if let Some(addr) = owner_of_token_accounts_by_account.get(&tx.destination) {
-                        tx.destination = addr.clone();
-                    }
-                }
-                TokenInstructions::TransferChecked(tx_checked) => {
-                    if let Some(addr) = owner_of_token_accounts_by_account.get(&tx_checked.destination) {
-                        tx_checked.destination = addr.clone();
-                    }
-                }
-                TokenInstructions::MintTo(mint) => {
-                    if let Some(addr) = owner_of_token_accounts_by_account.get(&mint.account) {
-                        mint.account = addr.clone();
-                    }
-                }
-                TokenInstructions::MintToChecked(mint_checked) => {
-                    if let Some(addr) = owner_of_token_accounts_by_account.get(&mint_checked.account) {
-                        mint_checked.account = addr.clone();
-                    }
-                }
-                TokenInstructions::Burn(burn) => {
-                    if let Some(addr) = owner_of_token_accounts_by_account.get(&burn.account) {
-                        burn.account = addr.clone();
-                    }
-                }
-                TokenInstructions::BurnChecked(burn_checked) => {
-                    if let Some(addr) = owner_of_token_accounts_by_account.get(&burn_checked.account) {
-                        burn_checked.account = addr.clone();
-                    }
-                }
-                _ => {
-                    return;
+        let DecodedInstruction::TokenInstruction(token_ixs) = ix else {
+            return;
+        };
+        match token_ixs {
+            TokenInstructions::Transfer(tx) => {
+                if let Some(addr) = owner_of_token_accounts_by_account.get(&tx.destination) {
+                    tx.destination = addr.clone();
                 }
             }
+            TokenInstructions::TransferChecked(tx_checked) => {
+                if let Some(addr) = owner_of_token_accounts_by_account.get(&tx_checked.destination)
+                {
+                    tx_checked.destination = addr.clone();
+                }
+            }
+            TokenInstructions::MintTo(mint) => {
+                if let Some(addr) = owner_of_token_accounts_by_account.get(&mint.account) {
+                    mint.account = addr.clone();
+                }
+            }
+            TokenInstructions::MintToChecked(mint_checked) => {
+                if let Some(addr) = owner_of_token_accounts_by_account.get(&mint_checked.account) {
+                    mint_checked.account = addr.clone();
+                }
+            }
+            TokenInstructions::Burn(burn) => {
+                if let Some(addr) = owner_of_token_accounts_by_account.get(&burn.account) {
+                    burn.account = addr.clone();
+                }
+            }
+            TokenInstructions::BurnChecked(burn_checked) => {
+                if let Some(addr) = owner_of_token_accounts_by_account.get(&burn_checked.account) {
+                    burn_checked.account = addr.clone();
+                }
+            }
+            _ => {
+                return;
+            }
+        }
     })
 }

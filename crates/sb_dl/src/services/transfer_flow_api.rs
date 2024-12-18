@@ -1,116 +1,83 @@
 use {
-    crate::transfer_flow::{create_ordered_transfer_for_block, types::OrderedTransfers}, anyhow::Context, axum::{
-        extract::{Extension, Path},
+    crate::transfer_flow::{create_ordered_transfer_for_block, types::OrderedTransfers},
+    anyhow::Context,
+    axum::{
         http::StatusCode,
         response::IntoResponse,
-        routing::get,
+        routing::post,
         Json, Router,
-    }, chrono::prelude::*, db::{client::BlockFilter, new_connection_pool}, diesel::{
-        prelude::*, r2d2::{ConnectionManager, Pool, PooledConnection}
-    }, serde::{Deserialize, Serialize}, solana_transaction_status::UiConfirmedBlock, std::sync::Arc
+    },
+    chrono::prelude::*,
+    serde::{Deserialize, Serialize},
+    solana_transaction_status::UiConfirmedBlock,
+    tower_http::{
+        trace::{DefaultOnResponse, TraceLayer},
+        LatencyUnit,
+    },
 };
-#[derive(Clone)]
-pub struct State {
-    db_pool: Pool<ConnectionManager<PgConnection>>,
-}
 
-pub async fn serve_api(listen_url: &str, db_url: &str) -> anyhow::Result<()> {
-    let router = new_router(db_url)?;
+pub async fn serve_api(listen_url: &str) -> anyhow::Result<()> {
+    let router = new_router()?;
     let listener = tokio::net::TcpListener::bind(listen_url).await?;
     axum::serve(listener, router)
         .await
         .with_context(|| "api failed")
 }
 
-pub fn new_router(db_url: &str) -> anyhow::Result<Router> {
-    let db_pool = new_connection_pool(db_url, 10)?;
+pub fn new_router() -> anyhow::Result<Router> {
     let app = Router::new()
         .route(
-            "/orderedTransfers/:blockNumber",
-            get(ordered_transfers_for_block),
+            "/orderedTransfers",
+            post(ordered_transfers_for_block),
         )
-        .layer(Extension(Arc::new(State { db_pool })));
+        .layer(
+            TraceLayer::new_for_http().on_response(
+                DefaultOnResponse::new()
+                    .level(tracing::Level::INFO)
+                    .latency_unit(LatencyUnit::Millis),
+            ),
+        );
     return Ok(app);
 }
 
 async fn ordered_transfers_for_block(
-    Path(number): Path<i64>,
-    Extension(state): Extension<Arc<State>>,
+    Json(payload): Json<OrderedTransfersRequest>,
 ) -> impl IntoResponse {
-
-    match state.db_pool.get() {
-        Ok(mut db_conn) => {
-
-                    let client = db::client::Client {};
-                    match client.select_block(&mut db_conn, BlockFilter::Number(number)) {
-                        Ok(mut blocks) => {
-                            if blocks.is_empty() {
-                                return (
-                                    StatusCode::NOT_FOUND,
-                                    Json(Error {
-                                        msg: format!("block({number}) not found"),
-                                    }),
-                                )
-                                    .into_response();
-                            } else {
-                                let block: UiConfirmedBlock = match serde_json::from_value(
-                                    std::mem::take(&mut blocks[0].data),
-                                ) {
-                                    Ok(block) => block,
-                                    Err(err) => {
-                                        return (
-                                            StatusCode::INTERNAL_SERVER_ERROR,
-                                            Json(Error {
-                                                msg: format!(
-                                                    "failed to deserialize block {err:#?}"
-                                                ),
-                                            }),
-                                        )
-                                            .into_response()
-                                    }
-                                };
-                                let time = if let Some(block_time) = block.block_time {
-                                    DateTime::from_timestamp(block_time, 0)
-                                } else {
-                                    None
-                                };
-                                match create_ordered_transfer_for_block(block) {
-                                    Ok(ordered_transfers) => {
-                                        return (
-                                            StatusCode::OK,
-                                            Json(OrderedTransfersResponse {
-                                                transfers: ordered_transfers,
-                                                slot: blocks[0].slot,
-                                                time
-                                            })
-                                        ).into_response()
-                                    }
-                                    Err(err) => return (
-                                        StatusCode::INTERNAL_SERVER_ERROR,
-                                        Json(Error {
-                                            msg: format!("failed to extract transfers(block={number}) {err:#?}")
-                                        })
-                                    ).into_response()
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            return (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(Error {
-                                    msg: err.to_string(),
-                                }),
-                            )
-                                .into_response()
-                        }
-                    }
-
+    let block: UiConfirmedBlock = match serde_json::from_value(payload.block) {
+        Ok(block) => block,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(Error {
+                    msg: format!("failed to deserialize block {err:#?}"),
+                }),
+            )
+                .into_response()
+        }
+    };
+    let time = if let Some(block_time) = block.block_time {
+        DateTime::from_timestamp(block_time, 0)
+    } else {
+        None
+    };
+    let block_number = block.block_height;
+    match create_ordered_transfer_for_block(block) {
+        Ok(ordered_transfers) => {
+            return (
+                StatusCode::OK,
+                Json(OrderedTransfersResponse {
+                    transfers: ordered_transfers,
+                    time,
+                    slot: None,
+                }),
+            )
+                .into_response()
         }
         Err(err) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(Error {
-                    msg: err.to_string(),
+                    msg: format!("failed to extract transfers(block={block_number:?}) {err:#?}"),
                 }),
             )
                 .into_response()
@@ -121,14 +88,22 @@ async fn ordered_transfers_for_block(
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OrderedTransfersResponse {
     pub transfers: Vec<OrderedTransfers>,
-    pub slot: i64,
     /// the block_time field in UiConfirmedBlock has an Option<_> type
     /// so its possible older values do not contain that field
     /// in which case we will set this time to None
     pub time: Option<DateTime<Utc>>,
+    /// this will not be used by the transfer flow api
+    /// but will be used by the transfer parser for elastic search
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slot: Option<i64>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Error {
     pub msg: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct OrderedTransfersRequest {
+    pub block: serde_json::Value,
 }

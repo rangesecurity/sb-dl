@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS blocks_number_key;

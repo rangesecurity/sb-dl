@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context};
 use chrono::prelude::*;
-use diesel::{prelude::*, result::DatabaseErrorKind};
+use diesel::{pg::Pg, prelude::*, result::DatabaseErrorKind, sql_query};
 use uuid::Uuid;
 
 use crate::models::{Blocks, Idls, NewBlock, NewSquads, Programs, Squads};
@@ -245,7 +245,7 @@ impl Client {
         d: &serde_json::Value,
     ) -> anyhow::Result<()> {
         use crate::schema::blocks::dsl::*;
-        let res =  NewBlock {
+        let res = NewBlock {
             number: n,
             slot: s,
             time: t,
@@ -253,7 +253,7 @@ impl Client {
             data: d,
         }
         .insert_into(blocks)
-        .execute(conn); 
+        .execute(conn);
         match res {
             Ok(_) => Ok(()),
             Err(diesel::result::Error::DatabaseError(kind, _)) => {
@@ -266,7 +266,37 @@ impl Client {
                     _ => Err(anyhow!("{:#?}", kind)),
                 }
             }
-            Err(err) => Err(anyhow!("{err:#?}"))
+            Err(err) => Err(anyhow!("{err:#?}")),
         }
     }
+    pub fn find_gaps(&self, conn: &mut PgConnection, start_height: i64, end_height: i64, limit: Option<i64>) -> anyhow::Result<Vec<i64>> {
+        let limit = if let Some(limit) = limit {
+            limit
+        } else {
+            100
+        };
+        // generally speaking one should never use formatted inputs like this
+        // due to sql injection vulnerabilities, but as this is initiated from 
+        // backend services, and we don't store personal/sensitive information
+        // it doesn't matter
+        let gaps = sql_query(format!(
+        "WITH expected_heights AS (
+            SELECT generate_series({start_height}, {end_height}) AS height
+        )
+        SELECT e.height AS number
+        FROM expected_heights e
+        LEFT JOIN blocks b
+        ON e.height = b.number
+        WHERE b.number IS NULL
+        LIMIT {limit};"
+        )).load::<Gaps>(conn)?;
+        Ok(gaps.into_iter().map(|g| g.number).collect::<Vec<_>>())
+    }
+}
+
+#[derive(Debug, QueryableByName, Queryable)]
+#[diesel(table_name = blocks)]
+pub struct Gaps {
+    #[diesel(sql_type = diesel::sql_types::Bigint)]
+    pub number: i64,
 }
