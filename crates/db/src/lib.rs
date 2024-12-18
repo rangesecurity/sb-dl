@@ -28,6 +28,7 @@ pub fn new_connection_pool(db_url: &str, max_size: u32) -> Result<Pool<Connectio
 
     Pool::builder()
         .max_size(max_size)
+        .max_lifetime(Some(std::time::Duration::from_secs(30)))
         .test_on_check_out(true)
         .build(manager).with_context(|| "failed to build connection pool")
 }
